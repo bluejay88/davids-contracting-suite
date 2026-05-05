@@ -1,0 +1,33 @@
+{
+  "name": "davids-contracting-suite",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server/dev.mjs",
+    "dev:client": "vite",
+    "dev:server": "node server/index.mjs --dev",
+    "build": "tsc -b && vite build",
+    "preview": "node server/index.mjs",
+    "start": "node server/index.mjs",
+    "mock:integrations": "node scripts/mock-integrations.mjs",
+    "test:secure-smoke": "node scripts/secure-audit-smoke.mjs",
+    "test:netlify-smoke": "node scripts/netlify-function-smoke.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^10.7.4",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^0.511.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react-swc": "^3.8.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.3.5"
+  }
+}
