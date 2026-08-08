@@ -13,12 +13,29 @@ const STAFF_EMAIL = process.env.STAFF_EMAIL || "estimator@davidscontracting.loca
 const STAFF_PASSWORD = process.env.STAFF_PASSWORD || "FieldReady30!";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "owner@davidscontracting.local";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "BuiltOnPurpose30!";
+const DEVELOPER_EMAIL = process.env.DEVELOPER_EMAIL || "developer@davidscontracting.local";
+const DEVELOPER_PASSWORD = process.env.DEVELOPER_PASSWORD || "DeveloperReady30!";
 const MOCK_BASE = process.env.MOCK_BASE_URL || "http://127.0.0.1:4310";
 
 const log = (message) => {
   console.log(message);
 };
-const securityCheck = () => ({ website: "", formStartedAt: Date.now() - 3000, challengeA: 4, challengeB: 5, challengeAnswer: 9 });
+const securityCheck = async (action) => {
+  const response = await requestJson(`/api/security/challenge?action=${encodeURIComponent(action)}`);
+  assert(response.ok, `Could not obtain a ${action} security challenge.`);
+  await new Promise((resolve) => setTimeout(resolve, 1250));
+  const challenge = response.payload;
+  return {
+    website: "",
+    challengeAction: challenge.action,
+    challengeId: challenge.challengeId,
+    challengeIssuedAt: challenge.issuedAt,
+    challengeA: challenge.a,
+    challengeB: challenge.b,
+    challengeAnswer: Number(challenge.a) + Number(challenge.b),
+    challengeSignature: challenge.signature,
+  };
+};
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -234,11 +251,14 @@ const smokeQuote = {
 const smokePdfDataUrl = "data:application/pdf;base64,JVBERi0xLjQKJUZha2UgUERG";
 
 const run = async () => {
+  process.env.DC_DEVELOPER_USERNAME = DEVELOPER_EMAIL;
+  process.env.DC_DEVELOPER_PASSWORD = DEVELOPER_PASSWORD;
   await rm(localNetlifyStateFile, { force: true });
 
   const publicJar = createCookieJar();
   const staffJar = createCookieJar();
   const adminJar = createCookieJar();
+  const developerJar = createCookieJar();
 
   const publicBootstrap = await requestJson("/api/bootstrap", {}, publicJar);
   assert(publicBootstrap.ok, "Public bootstrap request failed.");
@@ -260,7 +280,7 @@ const run = async () => {
     {
       method: "POST",
       body: {
-        ...securityCheck(),
+        ...(await securityCheck("estimate")),
         record: publicSmokeRecord,
         quote: smokeQuote,
       },
@@ -277,7 +297,7 @@ const run = async () => {
     {
       method: "POST",
       body: {
-        ...securityCheck(),
+        ...(await securityCheck("login")),
         role: "staff",
         email: STAFF_EMAIL,
         password: STAFF_PASSWORD,
@@ -293,7 +313,7 @@ const run = async () => {
     {
       method: "POST",
       body: {
-        ...securityCheck(),
+        ...(await securityCheck("login")),
         role: "admin",
         email: ADMIN_EMAIL,
         password: ADMIN_PASSWORD,
@@ -303,6 +323,16 @@ const run = async () => {
   );
   assert(adminLogin.ok, "Netlify admin login failed.");
   log("PASS netlify admin login succeeds.");
+
+  const developerLogin = await requestJson(
+    "/api/auth/login",
+    { method: "POST", body: { ...(await securityCheck("login")), role: "developer", email: DEVELOPER_EMAIL, password: DEVELOPER_PASSWORD } },
+    developerJar,
+  );
+  assert(developerLogin.ok && developerLogin.payload.sessionRole === "developer", "Netlify developer login failed.");
+  const developerDashboard = await requestJson("/api/developer/dashboard", {}, developerJar);
+  assert(developerDashboard.ok && developerDashboard.payload.appState.crmRecords.length === 0, "Developer dashboard must be isolated from Owner CRM data.");
+  log("PASS netlify developer dashboard is authenticated and isolated from Owner records.");
 
   const unauthorizedOperationsUpdate = await requestJson(
     "/api/admin/operations",
@@ -351,9 +381,9 @@ const run = async () => {
   }
   log("PASS netlify executive operations collections persist through an authenticated round-trip.");
 
-  const currentSettings = adminLogin.payload.appState.settings;
+  const currentSettings = developerLogin.payload.appState.settings;
   const settingsUpdate = await requestJson(
-    "/api/admin/settings",
+    "/api/developer/settings",
     {
       method: "PUT",
       body: {
@@ -369,10 +399,10 @@ const run = async () => {
         },
       },
     },
-    adminJar,
+    developerJar,
   );
   assert(settingsUpdate.ok, "Netlify admin settings update failed.");
-  log("PASS netlify admin settings update succeeds.");
+  log("PASS netlify developer settings update succeeds.");
 
   const quoteEmail = await requestJson(
     "/api/quotes/email",

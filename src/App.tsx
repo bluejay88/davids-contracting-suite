@@ -376,6 +376,23 @@ export default function App() {
             </span>
           ) : null}
           {hasSecureSession ? (
+            <button
+              className="ghost-button topbar__dashboard"
+              onClick={() => {
+                if (hasAdminSession) {
+                  void openAdmin();
+                } else if (hasDeveloperSession) {
+                  void openDeveloper();
+                } else {
+                  setActiveView("field");
+                }
+              }}
+              disabled={authBusy}
+            >
+              Dashboard
+            </button>
+          ) : null}
+          {hasSecureSession ? (
             <button className="ghost-button topbar__logout" onClick={() => void handleLogout()} disabled={authBusy}>
               {authBusy ? "Signing Out..." : "Log Out"}
             </button>
