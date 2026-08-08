@@ -335,7 +335,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app-shell ${window.location.hostname.includes("executive") ? "edition-executive" : "edition-standard"}`}>
+    <div className={`app-shell ${window.location.hostname.includes("executive") ? "edition-executive" : window.location.hostname.includes("original-5") ? "edition-original-five" : "edition-standard"}`}>
       <header className="topbar">
         <div className="topbar__brand">
           <span className="logo-frame logo-frame--header">
