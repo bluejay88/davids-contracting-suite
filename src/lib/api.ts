@@ -66,6 +66,7 @@ export const logoutSession = () =>
   });
 
 export const fetchAdminDashboard = () => requestJson<DashboardPayload>("/api/admin/dashboard");
+export const fetchDeveloperDashboard = () => requestJson<DashboardPayload>("/api/developer/dashboard");
 
 export const saveQuoteRecord = (record: CrmRecord, quote: QuoteResult, security: Record<string, unknown> = {}) =>
   requestJson<SaveQuotePayload>("/api/quotes/save", {
@@ -75,7 +76,7 @@ export const saveQuoteRecord = (record: CrmRecord, quote: QuoteResult, security:
   });
 
 export const updateAdminSettings = (settings: AppSettings) =>
-  requestJson<SettingsPayload>("/api/admin/settings", {
+  requestJson<SettingsPayload>("/api/developer/settings", {
     method: "PUT",
     headers: jsonHeaders,
     body: JSON.stringify({ settings }),
@@ -109,7 +110,7 @@ export const updateDashboardRecord = (recordId: string, patch: Partial<CrmRecord
   });
 
 export const runIntegrationTest = (kind: IntegrationKey) =>
-  requestJson<IntegrationTestResult>("/api/admin/integrations/test", {
+  requestJson<IntegrationTestResult>("/api/developer/integrations/test", {
     method: "POST",
     headers: jsonHeaders,
     body: JSON.stringify({ kind }),

@@ -6,7 +6,7 @@ export type ServiceCategory =
   | "electrical-hvac";
 
 export type AiProvider = "heuristic" | "openai-direct" | "anthropic-direct" | "webhook";
-export type AuthRole = "staff" | "admin";
+export type AuthRole = "staff" | "admin" | "developer";
 export type SessionRole = "public" | AuthRole;
 
 export type JobStatus =
@@ -627,6 +627,7 @@ export interface BootstrapPayload {
   sessionEmail?: string;
   hasQuoteSession: boolean;
   hasAdminSession: boolean;
+  hasDeveloperSession?: boolean;
   adminEmailHint: string;
   staffEmailHint: string;
   appState: AppState;

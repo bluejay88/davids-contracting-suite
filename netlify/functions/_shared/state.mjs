@@ -467,6 +467,13 @@ export const buildAdminState = (persistedState) => ({
   settings: sanitizeSettings(persistedState.appState.settings, persistedState.secrets, true),
 });
 
+// Technical access is isolated from the Owner workspace. Developer users receive
+// configuration only; operational records and personally identifiable data stay out.
+export const buildDeveloperState = (persistedState) => ({
+  ...buildPublicState(persistedState),
+  settings: sanitizeSettings(persistedState.appState.settings, persistedState.secrets, true),
+});
+
 export const saveQuoteRecord = async (record, quote) => {
   const persistedState = await readPersistedState();
   persistedState.appState.crmRecords = upsertById(persistedState.appState.crmRecords, record);

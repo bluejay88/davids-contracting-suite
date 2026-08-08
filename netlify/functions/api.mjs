@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   buildAdminState,
+  buildDeveloperState,
   buildPublicState,
   buildQuoteState,
   readPersistedState,
@@ -230,6 +231,14 @@ const requireAdminAuth = (request, persistedState) => {
   return null;
 };
 
+const requireDeveloperAuth = (request, persistedState) => {
+  if (getSessionRole(request, persistedState) !== "developer") {
+    return jsonResponse({ message: "Developer authentication is required for this route." }, 401);
+  }
+
+  return null;
+};
+
 const requireQuoteAuth = (request, persistedState) => {
   const role = getSessionRole(request, persistedState);
   if (role !== "staff" && role !== "admin") {
@@ -241,6 +250,10 @@ const requireQuoteAuth = (request, persistedState) => {
 const buildStateForRole = (persistedState, role, email = "") => {
   if (role === "admin") {
     return buildAdminState(persistedState);
+  }
+
+  if (role === "developer") {
+    return buildDeveloperState(persistedState);
   }
 
   if (role === "staff") {
@@ -258,6 +271,7 @@ const handleBootstrap = async (request, persistedState) => {
     sessionRole,
     hasQuoteSession: sessionRole === "staff" || sessionRole === "admin",
     hasAdminSession: sessionRole === "admin",
+    hasDeveloperSession: sessionRole === "developer",
     adminEmailHint: "",
     staffEmailHint: "",
     sessionEmail: session?.email || "",
@@ -273,11 +287,11 @@ const handleLogin = async (request, persistedState) => {
 
   const body = await parseJsonBody(request);
   validatePublicFormSecurity(body, request, "login");
-  const role = body.role === "staff" || body.role === "admin" ? body.role : null;
+  const role = body.role === "staff" || body.role === "admin" || body.role === "developer" ? body.role : null;
   if (!role) {
     return jsonResponse(
       {
-        message: "Login requests must specify either staff or admin access.",
+        message: "Login requests must specify staff, owner, or developer access.",
       },
       400,
     );
@@ -289,17 +303,23 @@ const handleLogin = async (request, persistedState) => {
     { email: String(process.env.DC_CONTRACTOR_EMAIL || "").trim().toLowerCase(), password: process.env.DC_CONTRACTOR_PASSWORD || "", type: "Contractor" },
     { email: String(process.env.DC_ESTIMATOR_EMAIL || "").trim().toLowerCase(), password: process.env.DC_ESTIMATOR_PASSWORD || "", type: "Estimator" },
   ].filter((account) => account.email && account.password);
+  const developerEmail = String(process.env.DC_DEVELOPER_USERNAME || "").trim().toLowerCase();
+  const developerPassword = String(process.env.DC_DEVELOPER_PASSWORD || "");
   const expectedEmail =
     role === "admin"
       ? String(process.env.DC_OWNER_USERNAME || persistedState.appState.settings.adminEmail).trim().toLowerCase()
-      : persistedState.appState.settings.staffEmail.trim().toLowerCase();
+      : role === "developer"
+        ? developerEmail
+        : persistedState.appState.settings.staffEmail.trim().toLowerCase();
   const configuredStaffAccount = role === "staff" ? configuredStaffAccounts.find((account) => account.email === email) : null;
   const passwordMatches =
     role === "admin"
       ? process.env.DC_OWNER_PASSWORD
         ? password === process.env.DC_OWNER_PASSWORD
         : verifyAdminPassword(persistedState, password)
-      : configuredStaffAccount ? password === configuredStaffAccount.password : verifyStaffPassword(persistedState, password);
+      : role === "developer"
+        ? Boolean(developerEmail && developerPassword) && password === developerPassword
+        : configuredStaffAccount ? password === configuredStaffAccount.password : verifyStaffPassword(persistedState, password);
 
   if (role === "staff" && configuredStaffAccount) {
     const employee = persistedState.appState.employees.find((item) => cleanText(item.email, 254).toLowerCase() === email);
@@ -313,8 +333,10 @@ const handleLogin = async (request, persistedState) => {
       {
         message:
           role === "admin"
-            ? "Credentials did not match the admin profile saved on the server."
-            : "Credentials did not match the contractor / estimator profile saved on the server.",
+            ? "Credentials did not match the owner profile saved on the server."
+            : role === "developer"
+              ? "Credentials did not match the developer profile configured on the server."
+              : "Credentials did not match the contractor / estimator profile saved on the server.",
       },
       401,
     );
@@ -326,7 +348,7 @@ const handleLogin = async (request, persistedState) => {
       sessionRole: role,
       sessionEmail: email,
       appState: buildStateForRole(persistedState, role, email),
-      message: role === "admin" ? "Admin login successful." : `${configuredStaffAccount?.type || "Contractor / Estimator"} workspace unlocked.`,
+      message: role === "admin" ? "Owner login successful." : role === "developer" ? "Developer workspace unlocked." : `${configuredStaffAccount?.type || "Contractor / Estimator"} workspace unlocked.`,
     },
     200,
     {
@@ -507,7 +529,7 @@ const handleSettingsUpdate = async (request, persistedState) => {
     return originError;
   }
 
-  const authError = requireAdminAuth(request, persistedState);
+  const authError = requireDeveloperAuth(request, persistedState);
   if (authError) {
     return authError;
   }
@@ -515,8 +537,8 @@ const handleSettingsUpdate = async (request, persistedState) => {
   const body = await parseJsonBody(request);
   const nextState = await updateAppSettings(body.settings || {});
   return jsonResponse({
-    appState: buildAdminState(nextState),
-    message: "Admin settings updated on the secure server.",
+    appState: buildDeveloperState(nextState),
+    message: "Developer configuration updated on the secure server.",
   });
 };
 
@@ -537,6 +559,12 @@ const handleOperationsUpdate = async (request, persistedState) => {
     appState: buildAdminState(nextState),
     message: "Operational workspace updated on the secure server.",
   });
+};
+
+const handleDeveloperDashboard = async (request, persistedState) => {
+  const authError = requireDeveloperAuth(request, persistedState);
+  if (authError) return authError;
+  return jsonResponse({ appState: buildDeveloperState(persistedState) });
 };
 
 const handleProjectActivity = async (request, persistedState, projectId) => {
@@ -667,7 +695,7 @@ const handleIntegrationTest = async (request, persistedState) => {
     return originError;
   }
 
-  const authError = requireAdminAuth(request, persistedState);
+  const authError = requireDeveloperAuth(request, persistedState);
   if (authError) {
     return authError;
   }
@@ -822,7 +850,11 @@ export default async (request) => {
       return handleDashboard(request, persistedState);
     }
 
-    if (request.method === "PUT" && pathname === "/api/admin/settings") {
+    if (request.method === "GET" && pathname === "/api/developer/dashboard") {
+      return handleDeveloperDashboard(request, persistedState);
+    }
+
+    if (request.method === "PUT" && pathname === "/api/developer/settings") {
       return handleSettingsUpdate(request, persistedState);
     }
 
@@ -846,7 +878,7 @@ export default async (request) => {
       return handleFieldProjectMediaRead(request, persistedState, remainder.slice(0, separator), remainder.slice(separator + 7));
     }
 
-    if (request.method === "POST" && pathname === "/api/admin/integrations/test") {
+    if (request.method === "POST" && pathname === "/api/developer/integrations/test") {
       return handleIntegrationTest(request, persistedState);
     }
 

@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AdminDashboard } from "./components/AdminDashboard";
+import { DeveloperDashboard } from "./components/DeveloperDashboard";
 import { ContractorDashboard } from "./components/ContractorDashboard";
 import { LandingPage } from "./components/LandingPage";
 import { QuoteBuilder } from "./components/QuoteBuilder";
@@ -10,6 +11,7 @@ import { CookieAccessibilityCenter, SiteAssistant } from "./components/SiteExper
 import { initialAppState } from "./data/mockData";
 import {
   fetchAdminDashboard,
+  fetchDeveloperDashboard,
   fetchBootstrap,
   loginUser,
   logoutSession,
@@ -29,7 +31,7 @@ import {
   SessionRole,
 } from "./types";
 
-type ViewKey = "landing" | "quote" | "gallery" | "podcast" | "financing" | "careers" | "contact" | "crm" | "field";
+type ViewKey = "landing" | "quote" | "gallery" | "podcast" | "financing" | "careers" | "contact" | "crm" | "field" | "developer";
 
 const initialPublicState: AppState = {
   ...initialAppState,
@@ -67,6 +69,8 @@ export default function App() {
 
   const hasQuoteSession = sessionRole === "staff" || sessionRole === "admin";
   const hasAdminSession = sessionRole === "admin";
+  const hasDeveloperSession = sessionRole === "developer";
+  const hasSecureSession = sessionRole !== "public";
 
   const syncBootstrap = async () => {
     const payload = await fetchBootstrap();
@@ -155,7 +159,7 @@ export default function App() {
   const openSecureAccess = (mode: AuthRole, nextView: ViewKey) => {
     setLoginMode(mode);
     setPostLoginView(nextView);
-    setLoginEmail(mode === "admin" ? adminEmailHint : staffEmailHint);
+    setLoginEmail(mode === "admin" ? adminEmailHint : mode === "developer" ? "" : staffEmailHint);
     setLoginPassword("");
     setLoginError("");
     setShowLogin(true);
@@ -194,6 +198,28 @@ export default function App() {
     }
   };
 
+  const openDeveloper = async () => {
+    if (!hasDeveloperSession) {
+      openSecureAccess("developer", "developer");
+      return;
+    }
+    setAuthBusy(true);
+    try {
+      const payload = await fetchDeveloperDashboard();
+      setAppState(payload.appState);
+      setActiveView("developer");
+    } catch (error) {
+      setSessionRole("public");
+      setActiveView("landing");
+      setShowLogin(true);
+      setLoginMode("developer");
+      setPostLoginView("developer");
+      setLoginError(error instanceof Error ? `${error.message} Please log in again.` : "Your developer session expired. Please log in again.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
   const handleLogin = async (event: FormEvent) => {
     event.preventDefault();
     setAuthBusy(true);
@@ -215,6 +241,8 @@ export default function App() {
           ? error.message
           : loginMode === "admin"
             ? "Credentials did not match the admin profile saved on the server."
+            : loginMode === "developer"
+              ? "Credentials did not match the developer profile configured on the server."
             : "Credentials did not match the contractor / estimator profile saved on the server.",
       );
     } finally {
@@ -342,12 +370,12 @@ export default function App() {
           <a className="topbar__phone" href={`tel:${appState.settings.repProfile.phone.replace(/[^0-9]/g, "")}`}>
             {appState.settings.repProfile.phone}
           </a>
-          {hasQuoteSession ? (
+          {hasSecureSession ? (
             <span className="topbar__session">
-              {hasAdminSession ? "Owner Session" : "Estimator Session"}
+              {hasAdminSession ? "Owner Session" : hasDeveloperSession ? "Developer Session" : "Estimator Session"}
             </span>
           ) : null}
-          {hasQuoteSession ? (
+          {hasSecureSession ? (
             <button className="ghost-button topbar__logout" onClick={() => void handleLogout()} disabled={authBusy}>
               {authBusy ? "Signing Out..." : "Log Out"}
             </button>
@@ -417,9 +445,17 @@ export default function App() {
             </section>
           )
         ) : null}
+
+        {activeView === "developer" ? (
+          hasDeveloperSession ? (
+            <DeveloperDashboard appState={appState} onUpdateSettings={handleSettingsUpdate} onRunIntegrationTest={handleIntegrationTest} onLogout={handleLogout} authBusy={authBusy} />
+          ) : (
+            <section className="locked-state"><p className="eyebrow">Developer Login Required</p><h2>Developer access protects technical configuration and release planning.</h2><button className="primary-button" onClick={() => void openDeveloper()}>Open Developer Login</button></section>
+          )
+        ) : null}
       </main>
 
-      {activeView !== "landing" && activeView !== "crm" ? (
+      {activeView !== "landing" && activeView !== "crm" && activeView !== "developer" ? (
         <footer className="site-footer" aria-label="Site footer">
           <div><strong>David&apos;s Contracting</strong><span>Built Right. Built to Last.</span></div>
           <nav aria-label="Footer navigation">
@@ -428,7 +464,7 @@ export default function App() {
             <button onClick={() => setActiveView("careers")}>Careers</button>
             <button onClick={() => setActiveView("contact")}>Contact</button>
           </nav>
-          {hasQuoteSession ? (
+          {hasSecureSession ? (
             <button className="site-footer__login" onClick={() => void handleLogout()} disabled={authBusy}>Log Out</button>
           ) : (
             <button className="site-footer__login" onClick={() => openSecureAccess("staff", "quote")}>Team &amp; Owner Login</button>
@@ -457,22 +493,23 @@ export default function App() {
                   onChange={(event) => {
                     const nextMode = event.target.value as AuthRole;
                     setLoginMode(nextMode);
-                    setPostLoginView(nextMode === "admin" ? "crm" : "quote");
-                    setLoginEmail(nextMode === "admin" ? adminEmailHint : staffEmailHint);
+                    setPostLoginView(nextMode === "admin" ? "crm" : nextMode === "developer" ? "developer" : "quote");
+                    setLoginEmail(nextMode === "admin" ? adminEmailHint : nextMode === "developer" ? "" : staffEmailHint);
                     setLoginError("");
                   }}
                 >
                   <option value="admin">Business Owner</option>
                   <option value="staff">Contractor / Estimator</option>
+                  <option value="developer">Developer</option>
                 </select>
               </label>
               <label>
-                {loginMode === "admin" ? "Owner username" : "Contractor / estimator email"}
+                {loginMode === "admin" ? "Owner username" : loginMode === "developer" ? "Developer username" : "Contractor / estimator email"}
                 <input
-                  type={loginMode === "admin" ? "text" : "email"}
+                  type={loginMode === "staff" ? "email" : "text"}
                   value={loginEmail}
                   onChange={(event) => setLoginEmail(event.target.value)}
-                  placeholder={loginMode === "admin" ? "Enter owner username" : "Enter contractor email"}
+                  placeholder={loginMode === "admin" ? "Enter owner username" : loginMode === "developer" ? "Enter developer username" : "Enter contractor email"}
                   autoComplete="username"
                 />
               </label>
@@ -489,6 +526,8 @@ export default function App() {
               <p className="helper-text">
                 {loginMode === "admin"
                   ? "Owner access unlocks applicants, customer leads, projects, payments, and company reports."
+                  : loginMode === "developer"
+                    ? "Developer access unlocks technical integrations, AI automation controls, and the implementation roadmap."
                   : "Contractor access unlocks the secure quote builder, AI scope tools, and quote email / save flows."}
               </p>
               {loginSecurityFields}

@@ -125,7 +125,6 @@ export function AdminDashboard({
     { id: "insights", label: "Reports & Insights", icon: LineChart },
     { id: "notifications", label: "Notifications", icon: BellRing },
     { id: "team", label: "Team & Resources", icon: Users },
-    { id: "settings", label: "Developer Console", icon: Settings },
   ] as const;
 
   const selectTab = (tab: typeof activeTab) => {
@@ -291,7 +290,7 @@ export function AdminDashboard({
       {activeTab === "gallery" ? <GalleryManager projects={appState.galleryProjects} onSave={(galleryProjects) => onUpdateOperations({ galleryProjects })} /> : null}
       {activeTab === "podcast" ? <PodcastManager episodes={appState.podcastEpisodes.length ? appState.podcastEpisodes : examplePodcastEpisodes} events={appState.podcastEvents.length ? appState.podcastEvents : examplePodcastEvents} onSave={onUpdateOperations} /> : null}
       {activeTab === "insights" ? <RevenueIntelligence appState={appState} /> : null}
-      {activeTab === "notifications" ? <section className="operations-hub"><div className="operations-hub__header"><div><p className="eyebrow">Owner-only review queue</p><h2>Notifications</h2><p>Recent field documentation and system review items. Private Owner notes never appear in field workspaces.</p></div><BellRing size={24} /></div><div className="operations-list">{(appState.ownerNotifications || []).slice(0, 25).map((item) => { const project = appState.projects.find((entry) => entry.id === item.projectId); const activity = project?.activity?.find((entry) => `notice-${entry.id}` === item.id); return <article key={item.id}><div><strong>{item.title}</strong><span>{project?.name || "Project"} · {item.severity}</span><small>{item.detail}</small>{activity?.attachments.length ? <p>{activity.attachments.map((attachment) => <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer">Open {attachment.name}</a>)}</p> : null}</div><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></article>; })}{!(appState.ownerNotifications || []).length ? <p className="helper-text">No new project notifications. Field documentation will appear here as it is submitted.</p> : null}</div></section> : null}
+      {activeTab === "notifications" ? <section className="operations-hub">{(() => { const priority = { Urgent: 0, Review: 1, Info: 2 } as const; const notices = [...(appState.ownerNotifications || [])].sort((left, right) => priority[left.severity] - priority[right.severity] || right.createdAt.localeCompare(left.createdAt)).slice(0, 25); const open = notices.filter((item) => !item.readAt).length; return <><div className="operations-hub__header"><div><p className="eyebrow">Owner-only review queue</p><h2>Notifications</h2><p>{open} open item{open === 1 ? "" : "s"} across the latest field documentation and system review activity.</p></div><BellRing size={24} /></div><div className="operations-metrics"><div><strong>{notices.filter((item) => item.severity === "Urgent").length}</strong><span>Urgent</span></div><div><strong>{notices.filter((item) => item.severity === "Review").length}</strong><span>Review</span></div><div><strong>{notices.filter((item) => item.severity === "Info").length}</strong><span>Information</span></div></div><div className="operations-list">{notices.map((item) => { const project = appState.projects.find((entry) => entry.id === item.projectId); const activity = project?.activity?.find((entry) => `notice-${entry.id}` === item.id); return <article key={item.id}><div><strong>{item.title}</strong><span>{project?.name || "Project"} · {item.severity}</span><small>{item.detail}</small>{activity?.attachments.length ? <p>{activity.attachments.map((attachment) => <a key={attachment.id} href={attachment.url} target="_blank" rel="noreferrer">Open {attachment.name}</a>)}</p> : null}</div><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></article>; })}{!notices.length ? <p className="helper-text">No new project notifications. Field documentation will appear here as it is submitted.</p> : null}</div></>; })()}</section> : null}
       {activeTab === "overview" ? <><section className="dashboard__hero">
         <div>
           <p className="eyebrow">Owner control center</p>
@@ -520,7 +519,7 @@ export function AdminDashboard({
             </section>
           </section>
 
-          <section className={`panel owner-tab-panel${activeTab === "insights" ? " is-active" : ""}`}>
+          <section className={`panel owner-tab-panel${activeTab === "settings" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">AI + AR Blueprint</p>
@@ -647,7 +646,7 @@ export function AdminDashboard({
             </ul>
           </section>
 
-          <section className={`panel owner-tab-panel${activeTab === "insights" ? " is-active" : ""}`}>
+          <section className={`panel owner-tab-panel${activeTab === "settings" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Launch Priorities</p>
@@ -666,7 +665,7 @@ export function AdminDashboard({
             </ul>
           </section>
 
-          <section className={`panel owner-tab-panel${activeTab === "insights" ? " is-active" : ""}`}>
+          <section className={`panel owner-tab-panel${activeTab === "settings" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Scale Stack</p>

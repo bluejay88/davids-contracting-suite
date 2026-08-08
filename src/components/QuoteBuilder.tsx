@@ -53,7 +53,7 @@ import {
 interface QuoteBuilderProps {
   settings: AppSettings;
   historicalJobs: HistoricalJob[];
-  sessionRole: "public" | "staff" | "admin";
+  sessionRole: "public" | "staff" | "admin" | "developer";
   onSaveRecord: (record: CrmRecord, quote: QuoteResult, security?: Record<string, unknown>) => Promise<void>;
   onOpenAdmin: () => void;
 }

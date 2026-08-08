@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { BadgeDollarSign, BookOpenCheck, BrainCircuit, ShieldCheck, TrendingUp, Users } from "lucide-react";
 import { AppState, ContactLead, CrmRecord, FinancingInquiry } from "../types";
 import { formatCurrency } from "../lib/estimates";
+import { reportCatalog } from "../data/reportCatalog";
 
 type Signal = { label: string; points: number; detail: string };
 type LeadInsight = {
@@ -112,6 +113,7 @@ export function RevenueIntelligence({ appState }: { appState: AppState }) {
         <div className="lead-intelligence-card__body"><div><h3>Why these scores</h3>{item.signals.map((signal) => <p key={signal.label}><strong>{signal.label}: +{signal.points}</strong><span>{signal.detail}</span></p>)}</div><div><h3>Recommended next moves</h3><ol>{item.nextActions.map((action) => <li key={action}>{action}</li>)}</ol><p className="human-review-note">Owner review required. Never pressure a customer, promise financing, or treat this score as a credit or eligibility decision.</p></div></div>
       </details>) : <p className="helper-text">Lead guidance will appear after website inquiries, estimates, or financing requests are received.</p>}
     </div>
+    <section className="training-foundation"><div><p className="eyebrow">Reporting library</p><h3>40 owner reporting views</h3><p>Definitions are ready; each view is enabled only when its source records are available and validated.</p></div><div>{reportCatalog.map((report) => <span key={report.name}><strong>{report.name}</strong><small>{report.group}</small></span>)}</div></section>
     <section className="training-foundation"><div><p className="eyebrow">Workforce development</p><h3><BookOpenCheck/> Training recommendation foundation</h3><p>Curated starting points. The owner must verify role fit, current requirements, provider status, cost, and completion records.</p></div><div>{training.map((item) => <a key={item.title} href={item.url} target="_blank" rel="noreferrer"><strong>{item.title}</strong><span>{item.reason}</span></a>)}</div></section>
   </section>;
 }
