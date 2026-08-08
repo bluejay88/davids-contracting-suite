@@ -7,6 +7,8 @@ import {
   saveQuoteRecord,
   savePublicIntake,
   storeApplicantResume,
+  storeProjectMedia,
+  readProjectMedia,
   updateAppSettings,
   updateCrmRecord,
   updateOperationsState,
@@ -565,9 +567,38 @@ const handleFieldProjectActivity = async (request, persistedState, projectId) =>
   const text = cleanText(body.body, 4000);
   if (!text) return jsonResponse({ message: "A field note is required." }, 400);
   const now = new Date().toISOString();
-  const entry = { id: publicId("activity"), projectId, kind: "Field Note", authorName: `${employee.firstName} ${employee.lastName}`.trim(), authorRole: "Contractor", body: text, attachments: [], createdAt: now };
+  const attachmentPrefix = `/api/field/projects/${encodeURIComponent(projectId)}/media/`;
+  const attachments = Array.isArray(body.attachments) ? body.attachments.slice(0, 12).map((item) => ({ id: cleanText(item?.id, 80), name: cleanText(item?.name, 180), mediaType: ["image", "video", "document"].includes(item?.mediaType) ? item.mediaType : "document", url: cleanText(item?.url, 500), uploadedAt: cleanText(item?.uploadedAt, 40) })).filter((item) => item.id && item.name && item.url.startsWith(attachmentPrefix)) : [];
+  const entry = { id: publicId("activity"), projectId, kind: "Field Note", authorName: `${employee.firstName} ${employee.lastName}`.trim(), authorRole: "Contractor", body: text, attachments, createdAt: now };
   const nextState = await appendProjectActivity(projectId, entry);
   return jsonResponse({ appState: buildQuoteState(nextState, session.email), activity: entry, message: "Field documentation submitted to the Owner." });
+};
+
+const handleFieldProjectMedia = async (request, persistedState, projectId) => {
+  const originError = requireSameOrigin(request); if (originError) return originError;
+  const authError = requireQuoteAuth(request, persistedState); if (authError) return authError;
+  const session = readSession(request, persistedState);
+  const employee = persistedState.appState.employees.find((item) => cleanText(item.email, 254).toLowerCase() === cleanText(session?.email, 254).toLowerCase() && item.status === "Active");
+  const project = persistedState.appState.projects.find((item) => item.id === projectId);
+  if (!employee || !project || (!(employee.assignedProjectIds || []).includes(projectId) && !(project.employeeIds || []).includes(employee.id))) return jsonResponse({ message: "You are not assigned to this project." }, 403);
+  const body = await parseJsonBody(request); const mime = cleanText(body.mimeType, 100); const allowed = new Map([["image/jpeg", ["image", "jpg", 8]], ["image/png", ["image", "png", 8]], ["image/webp", ["image", "webp", 8]], ["video/mp4", ["video", "mp4", 20]], ["application/pdf", ["document", "pdf", 8]]]); const match = allowed.get(mime);
+  if (!match || typeof body.dataUrl !== "string" || !body.dataUrl.startsWith(`data:${mime};base64,`)) return jsonResponse({ message: "Only JPG, PNG, WEBP, MP4, and PDF project files are accepted." }, 400);
+  const bytes = Buffer.byteLength(body.dataUrl, "utf8"); if (bytes > match[2] * 1024 * 1024 * 1.4) return jsonResponse({ message: `This file exceeds the ${match[2]}MB limit.` }, 413);
+  const storageKey = await storeProjectMedia({ dataUrl: body.dataUrl, extension: match[1] }); const now = new Date().toISOString();
+  const attachment = { id: publicId("attachment"), name: cleanText(body.fileName, 180) || `project-file.${match[1]}`, mediaType: match[0], url: `/api/field/projects/${encodeURIComponent(projectId)}/media/${storageKey}`, uploadedAt: now };
+  return jsonResponse({ attachment, message: "Project media stored privately." });
+};
+
+const handleFieldProjectMediaRead = async (request, persistedState, projectId, storageKey) => {
+  const authError = requireQuoteAuth(request, persistedState); if (authError) return authError;
+  const session = readSession(request, persistedState); const isOwner = session?.role === "admin";
+  const employee = persistedState.appState.employees.find((item) => cleanText(item.email, 254).toLowerCase() === cleanText(session?.email, 254).toLowerCase() && item.status === "Active");
+  const project = persistedState.appState.projects.find((item) => item.id === projectId);
+  if (!project || (!isOwner && (!employee || (!(employee.assignedProjectIds || []).includes(projectId) && !(project.employeeIds || []).includes(employee.id))))) return jsonResponse({ message: "You are not authorized to view this project media." }, 403);
+  if (!/^[a-f0-9]{40}\.(jpg|png|webp|mp4|pdf)$/.test(storageKey)) return jsonResponse({ message: "Invalid media reference." }, 400);
+  const dataUrl = await readProjectMedia(storageKey); if (!dataUrl) return jsonResponse({ message: "Project media was not found." }, 404);
+  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl); if (!match) return jsonResponse({ message: "Stored media is invalid." }, 500);
+  return new Response(Buffer.from(match[2], "base64"), { status: 200, headers: { ...securityHeaders, "Content-Type": match[1], "Cache-Control": "private, no-store" } });
 };
 
 const handleRecordUpdate = async (request, persistedState, recordId) => {
@@ -805,6 +836,14 @@ export default async (request) => {
     if (request.method === "POST" && pathname.startsWith("/api/field/projects/") && pathname.endsWith("/activity")) {
       const projectId = pathname.slice("/api/field/projects/".length, -"/activity".length);
       return handleFieldProjectActivity(request, persistedState, projectId);
+    }
+    if (request.method === "POST" && pathname.startsWith("/api/field/projects/") && pathname.endsWith("/media")) {
+      const projectId = pathname.slice("/api/field/projects/".length, -"/media".length);
+      return handleFieldProjectMedia(request, persistedState, projectId);
+    }
+    if (request.method === "GET" && pathname.startsWith("/api/field/projects/") && pathname.includes("/media/")) {
+      const remainder = pathname.slice("/api/field/projects/".length); const separator = remainder.indexOf("/media/");
+      return handleFieldProjectMediaRead(request, persistedState, remainder.slice(0, separator), remainder.slice(separator + 7));
     }
 
     if (request.method === "POST" && pathname === "/api/admin/integrations/test") {

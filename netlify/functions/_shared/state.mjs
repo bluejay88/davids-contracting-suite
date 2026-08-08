@@ -19,6 +19,7 @@ const stateKey = "app-state.json";
 const seedAppState = createSeedAppState();
 const CURRENT_STATE_SCHEMA_VERSION = 8;
 const resumeStoreName = "davids-contracting-private-resumes";
+const projectMediaStoreName = "davids-contracting-project-media";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -630,4 +631,22 @@ export const storeApplicantResume = async ({ data, extension }) => {
     await writeFile(path.join(uploadsDir, storageKey), data);
   }
   return storageKey;
+};
+
+export const storeProjectMedia = async ({ dataUrl, extension }) => {
+  const storageKey = `${randomBytes(20).toString("hex")}.${extension}`;
+  if (useNetlifyBlobs) {
+    const store = getStore({ name: projectMediaStoreName, consistency: "strong" });
+    await store.set(storageKey, dataUrl);
+  } else {
+    const uploadsDir = path.join(localDataDir, "project-media");
+    await mkdir(uploadsDir, { recursive: true });
+    await writeFile(path.join(uploadsDir, storageKey), dataUrl, "utf8");
+  }
+  return storageKey;
+};
+
+export const readProjectMedia = async (storageKey) => {
+  if (useNetlifyBlobs) return getStore({ name: projectMediaStoreName, consistency: "strong" }).get(storageKey);
+  try { return await readFile(path.join(localDataDir, "project-media", storageKey), "utf8"); } catch { return null; }
 };

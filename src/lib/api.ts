@@ -88,11 +88,17 @@ export const updateOperationsState = (patch: OperationsStatePatch) =>
     body: JSON.stringify({ patch }),
   });
 
-export const submitFieldProjectNote = (projectId: string, body: string) =>
+export const submitFieldProjectNote = (projectId: string, body: string, attachments: unknown[] = []) =>
   requestJson<{ message: string; appState: AppState }>(`/api/field/projects/${encodeURIComponent(projectId)}/activity`, {
     method: "POST",
     headers: jsonHeaders,
-    body: JSON.stringify({ body }),
+    body: JSON.stringify({ body, attachments }),
+  });
+
+export const uploadFieldProjectMedia = async (projectId: string, file: File) =>
+  requestJson<{ attachment: { id: string; name: string; mediaType: "image" | "video" | "document"; url: string; uploadedAt: string } }>(`/api/field/projects/${encodeURIComponent(projectId)}/media`, {
+    method: "POST", headers: jsonHeaders,
+    body: JSON.stringify({ fileName: file.name, mimeType: file.type, dataUrl: await blobToDataUrl(file) }),
   });
 
 export const updateDashboardRecord = (recordId: string, patch: Partial<CrmRecord>) =>
