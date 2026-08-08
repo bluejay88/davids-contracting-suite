@@ -14,6 +14,8 @@ const rootDir = path.resolve(serverDir, "..");
 const dataDir = path.join(rootDir, "server-data");
 const stateFile = path.join(dataDir, "app-state.json");
 const seedAppState = createSeedAppState();
+const CURRENT_STATE_SCHEMA_VERSION = 8;
+const uploadsDir = path.join(dataDir, "uploads");
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
@@ -74,6 +76,7 @@ const normalizeSettingsInput = (currentSettings, nextSettings) => {
   const aiProvider =
     candidate.aiProvider === "heuristic" ||
     candidate.aiProvider === "openai-direct" ||
+    candidate.aiProvider === "anthropic-direct" ||
     candidate.aiProvider === "webhook"
       ? candidate.aiProvider
       : currentSettings.aiProvider;
@@ -94,11 +97,14 @@ const normalizeSettingsInput = (currentSettings, nextSettings) => {
     staffPassword: "",
     serviceAreaZip: normalizeRequiredString(candidate.serviceAreaZip, currentSettings.serviceAreaZip),
     aiProvider,
+    automationEnabled: candidate.automationEnabled === true,
     googleAppsScriptUrl: normalizeString(candidate.googleAppsScriptUrl, currentSettings.googleAppsScriptUrl),
     aiWebhookUrl: normalizeString(candidate.aiWebhookUrl, currentSettings.aiWebhookUrl),
     emailWebhookUrl: normalizeString(candidate.emailWebhookUrl, currentSettings.emailWebhookUrl),
     openAiApiKey: "",
+    anthropicApiKey: "",
     openAiModel: normalizeRequiredString(candidate.openAiModel, currentSettings.openAiModel),
+    anthropicModel: normalizeRequiredString(candidate.anthropicModel, currentSettings.anthropicModel),
     openAiSearchModel: normalizeRequiredString(candidate.openAiSearchModel, currentSettings.openAiSearchModel),
     openAiTranscriptionModel: normalizeRequiredString(
       candidate.openAiTranscriptionModel,
@@ -138,12 +144,15 @@ const sanitizeSettings = (settings, secrets, includeIntegrationUrls) => ({
   adminPassword: "",
   staffPassword: "",
   openAiApiKey: "",
+  anthropicApiKey: "",
   aiWebhookUrl: includeIntegrationUrls ? settings.aiWebhookUrl : "",
   emailWebhookUrl: includeIntegrationUrls ? settings.emailWebhookUrl : "",
   googleAppsScriptUrl: includeIntegrationUrls ? settings.googleAppsScriptUrl : "",
   hasAdminPassword: Boolean(secrets.adminPasswordHash),
   hasStaffPassword: Boolean(secrets.staffPasswordHash),
   hasOpenAiApiKey: Boolean(secrets.openAiApiKey?.trim()),
+  hasAiGateway: Boolean(process.env.OPENAI_BASE_URL?.trim()),
+  hasAnthropicApiKey: Boolean(secrets.anthropicApiKey?.trim() || process.env.ANTHROPIC_API_KEY?.trim()),
   hasAiWebhook: Boolean(settings.aiWebhookUrl?.trim()),
   hasEmailWebhook: Boolean(settings.emailWebhookUrl?.trim()),
   hasGoogleSheetsSync: Boolean(settings.googleAppsScriptUrl?.trim()),
@@ -155,6 +164,7 @@ const createInitialPersistedState = () => {
   const staffSecret = createPasswordSecret(starterStaffPassword);
 
   return {
+    schemaVersion: CURRENT_STATE_SCHEMA_VERSION,
     appState,
     secrets: {
       adminPasswordSalt: adminSecret.passwordSalt,
@@ -162,6 +172,7 @@ const createInitialPersistedState = () => {
       staffPasswordSalt: staffSecret.passwordSalt,
       staffPasswordHash: staffSecret.passwordHash,
       openAiApiKey: "",
+      anthropicApiKey: "",
     },
   };
 };
@@ -184,10 +195,38 @@ const migrateState = (rawState) => {
     adminPassword: "",
     staffPassword: "",
     openAiApiKey: "",
+    anthropicApiKey: "",
   };
+  if (nextAppState.settings.repProfile.email?.trim().toLowerCase() === "student.jayla1985@gmail.com") {
+    nextAppState.settings.repProfile.email = "Davidscontracting49@gmail.com";
+  }
   nextAppState.crmRecords = Array.isArray(nextAppState.crmRecords) ? nextAppState.crmRecords : [];
   nextAppState.reminders = Array.isArray(nextAppState.reminders) ? nextAppState.reminders : [];
   nextAppState.historicalJobs = Array.isArray(nextAppState.historicalJobs) ? nextAppState.historicalJobs : [];
+  nextAppState.applicants = Array.isArray(nextAppState.applicants) ? nextAppState.applicants : clone(seedAppState.applicants);
+  nextAppState.jobOpenings = Array.isArray(nextAppState.jobOpenings) ? nextAppState.jobOpenings : clone(seedAppState.jobOpenings);
+  nextAppState.projects = Array.isArray(nextAppState.projects) ? nextAppState.projects : clone(seedAppState.projects);
+  nextAppState.employees = Array.isArray(nextAppState.employees) ? nextAppState.employees : clone(seedAppState.employees);
+  nextAppState.employees = nextAppState.employees.map((employee) => ({
+    ...employee,
+    payFrequency: ["Daily", "Weekly", "Biweekly", "Semimonthly", "Monthly", "Per Project", "Contracted", "Hourly", "Commission", "Other"].includes(employee?.payFrequency) ? employee.payFrequency : "Weekly",
+    paymentMethod: ["Cash", "Check", "Direct Deposit", "PayPal", "Cash App", "Venmo", "Zelle", "ACH", "Prepaid Card", "Other"].includes(employee?.paymentMethod) ? employee.paymentMethod : "Cash",
+    paymentHandle: typeof employee?.paymentHandle === "string" ? employee.paymentHandle.slice(0, 120) : "",
+  }));
+  nextAppState.materials = Array.isArray(nextAppState.materials) ? nextAppState.materials : clone(seedAppState.materials);
+  nextAppState.aiReviews = Array.isArray(nextAppState.aiReviews) ? nextAppState.aiReviews : clone(seedAppState.aiReviews);
+  nextAppState.contactLeads = Array.isArray(nextAppState.contactLeads) ? nextAppState.contactLeads : [];
+  nextAppState.financingInquiries = Array.isArray(nextAppState.financingInquiries) ? nextAppState.financingInquiries : [];
+  nextAppState.analyticsEvents = Array.isArray(nextAppState.analyticsEvents) ? nextAppState.analyticsEvents : [];
+  nextAppState.galleryProjects = Array.isArray(nextAppState.galleryProjects) ? nextAppState.galleryProjects : [];
+  nextAppState.podcastEpisodes = Array.isArray(nextAppState.podcastEpisodes) ? nextAppState.podcastEpisodes : [];
+  nextAppState.podcastEvents = Array.isArray(nextAppState.podcastEvents) ? nextAppState.podcastEvents : [];
+  if ((Number(rawState?.schemaVersion) || 0) < 5 && nextAppState.galleryProjects.length === 0) nextAppState.galleryProjects = clone(seedAppState.galleryProjects);
+  if ((Number(rawState?.schemaVersion) || 0) < 8) {
+    const requiredIds = new Set(["gallery-training-deconstruction", "gallery-safety-lead-testing", "gallery-training-ceiling-panels"]);
+    const additions = seedAppState.galleryProjects.filter((project) => requiredIds.has(project.id) && !nextAppState.galleryProjects.some((current) => current.id === project.id));
+    nextAppState.galleryProjects.push(...clone(additions));
+  }
   nextAppState.crmRecords = nextAppState.crmRecords.map((record) => ({
     ...record,
     source: record?.source === "public-estimate" ? "public-estimate" : "staff-estimate",
@@ -237,11 +276,13 @@ const migrateState = (rawState) => {
         })();
 
   return {
+    schemaVersion: CURRENT_STATE_SCHEMA_VERSION,
     appState: nextAppState,
     secrets: {
       ...adminSecret,
       ...staffSecret,
       openAiApiKey: normalizeString(rawSecrets.openAiApiKey || rawState?.settings?.openAiApiKey),
+      anthropicApiKey: normalizeString(rawSecrets.anthropicApiKey || rawState?.settings?.anthropicApiKey),
     },
   };
 };
@@ -286,6 +327,11 @@ export const verifyStaffPassword = (persistedState, password) =>
     persistedState.secrets.staffPasswordHash,
   );
 
+const sanitizeGalleryProject = (item) => {
+  const { address: _privateAddress, ...publicProject } = clone(item);
+  return publicProject;
+};
+
 export const buildPublicState = (persistedState) => ({
   settings: sanitizeSettings(persistedState.appState.settings, persistedState.secrets, false),
   crmRecords: [],
@@ -294,6 +340,18 @@ export const buildPublicState = (persistedState) => ({
     ...clone(job),
     clientName: "Prior client",
   })),
+  applicants: [],
+  jobOpenings: [],
+  projects: [],
+  employees: [],
+  materials: [],
+  aiReviews: [],
+  contactLeads: [],
+  financingInquiries: [],
+  analyticsEvents: [],
+  galleryProjects: persistedState.appState.galleryProjects.filter((item) => item.published).map(sanitizeGalleryProject),
+  podcastEpisodes: persistedState.appState.podcastEpisodes.filter((item) => item.status === "Published" || item.status === "Scheduled"),
+  podcastEvents: persistedState.appState.podcastEvents.filter((item) => item.published),
 });
 
 export const buildQuoteState = (persistedState) => ({
@@ -304,6 +362,18 @@ export const buildQuoteState = (persistedState) => ({
     ...clone(job),
     clientName: "Prior client",
   })),
+  applicants: [],
+  jobOpenings: [],
+  projects: [],
+  employees: [],
+  materials: [],
+  aiReviews: [],
+  contactLeads: [],
+  financingInquiries: [],
+  analyticsEvents: [],
+  galleryProjects: persistedState.appState.galleryProjects.filter((item) => item.published).map(sanitizeGalleryProject),
+  podcastEpisodes: persistedState.appState.podcastEpisodes.filter((item) => item.status === "Published" || item.status === "Scheduled"),
+  podcastEvents: persistedState.appState.podcastEvents.filter((item) => item.published),
 });
 
 export const buildAdminState = (persistedState) => ({
@@ -359,6 +429,7 @@ export const updateAppSettings = async (nextSettings) => {
   const trimmedAdminPassword = normalizeString(nextSettings?.adminPassword);
   const trimmedStaffPassword = normalizeString(nextSettings?.staffPassword);
   const trimmedOpenAiApiKey = normalizeString(nextSettings?.openAiApiKey);
+  const trimmedAnthropicApiKey = normalizeString(nextSettings?.anthropicApiKey);
 
   persistedState.appState.settings = normalizeSettingsInput(persistedState.appState.settings, nextSettings);
 
@@ -376,6 +447,46 @@ export const updateAppSettings = async (nextSettings) => {
 
   if (trimmedOpenAiApiKey) {
     persistedState.secrets.openAiApiKey = trimmedOpenAiApiKey;
+  }
+  if (trimmedAnthropicApiKey) persistedState.secrets.anthropicApiKey = trimmedAnthropicApiKey;
+
+  await writePersistedState(persistedState);
+  return persistedState;
+};
+
+export const updateOperationsState = async (patch = {}) => {
+  const persistedState = await readPersistedState();
+  const allowedCollections = ["applicants", "jobOpenings", "projects", "employees", "materials", "aiReviews", "contactLeads", "financingInquiries", "analyticsEvents", "galleryProjects", "podcastEpisodes", "podcastEvents"];
+
+  for (const key of allowedCollections) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      if (!Array.isArray(patch[key])) {
+        throw Object.assign(new Error(`${key} must be an array.`), { status: 400 });
+      }
+      if (patch[key].length > 5000) {
+        throw Object.assign(new Error(`${key} cannot contain more than 5,000 records per import.`), { status: 400 });
+      }
+      const ids = new Set();
+      for (const item of patch[key]) {
+        if (!item || typeof item !== "object" || typeof item.id !== "string" || !item.id.trim() || item.id.length > 128) {
+          throw Object.assign(new Error(`${key} contains a record with an invalid id.`), { status: 400 });
+        }
+        if (ids.has(item.id)) {
+          throw Object.assign(new Error(`${key} contains duplicate id ${item.id}.`), { status: 400 });
+        }
+        ids.add(item.id);
+        if (key === "employees") {
+          const validFrequencies = ["Daily", "Weekly", "Biweekly", "Semimonthly", "Monthly", "Per Project", "Contracted", "Hourly", "Commission", "Other"];
+          const validMethods = ["Cash", "Check", "Direct Deposit", "PayPal", "Cash App", "Venmo", "Zelle", "ACH", "Prepaid Card", "Other"];
+          if (!normalizeString(item.firstName) || !normalizeString(item.lastName) || !normalizeString(item.title) || item.firstName.length > 80 || item.lastName.length > 80 || item.title.length > 120) throw Object.assign(new Error("Each employee requires a valid first name, last name, and role/title."), { status: 400 });
+          if (!isFiniteNumber(item.hourlyRate) || item.hourlyRate < 0 || item.hourlyRate > 10000) throw Object.assign(new Error("Employee pay rate is outside the allowed range."), { status: 400 });
+          if (!validFrequencies.includes(item.payFrequency) || !validMethods.includes(item.paymentMethod)) throw Object.assign(new Error("Employee pay frequency or payment method is invalid."), { status: 400 });
+          if (item.paymentMethod !== "Cash" && (!normalizeString(item.paymentHandle) || item.paymentHandle.length > 120)) throw Object.assign(new Error("A safe payout alias or account label is required for non-cash payment methods."), { status: 400 });
+          if (/\d{9,}/.test(normalizeString(item.paymentHandle))) throw Object.assign(new Error("Do not store bank, routing, card, or other full financial account numbers in employee records."), { status: 400 });
+        }
+      }
+      persistedState.appState[key] = clone(patch[key]);
+    }
   }
 
   await writePersistedState(persistedState);
@@ -424,4 +535,21 @@ export const updateCrmRecord = async (recordId, patch) => {
     previousRecord,
     updatedRecord,
   };
+};
+
+export const savePublicIntake = async (collection, record, relatedReview = null) => {
+  const allowed = new Set(["contactLeads", "financingInquiries", "analyticsEvents", "applicants"]);
+  if (!allowed.has(collection)) throw Object.assign(new Error("Unsupported public intake collection."), { status: 400 });
+  const persistedState = await readPersistedState();
+  persistedState.appState[collection] = upsertById(persistedState.appState[collection], clone(record)).slice(0, collection === "analyticsEvents" ? 20_000 : 5_000);
+  if (relatedReview) persistedState.appState.aiReviews = upsertById(persistedState.appState.aiReviews, clone(relatedReview));
+  await writePersistedState(persistedState);
+  return persistedState;
+};
+
+export const storeApplicantResume = async ({ data, extension }) => {
+  await mkdir(uploadsDir, { recursive: true });
+  const storageKey = `${randomBytes(20).toString("hex")}.${extension}`;
+  await writeFile(path.join(uploadsDir, storageKey), data);
+  return storageKey;
 };

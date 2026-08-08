@@ -32,10 +32,12 @@ const asJsonString = (value: unknown) => JSON.stringify(value, null, 2);
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
 const canUseOpenAiDirect = (settings: AppSettings) =>
-  settings.aiProvider === "openai-direct" && settings.hasOpenAiApiKey;
+  settings.automationEnabled && settings.aiProvider === "openai-direct" && (settings.hasOpenAiApiKey || settings.hasAiGateway);
 
 const canUseWebhook = (settings: AppSettings) =>
-  settings.aiProvider === "webhook" && settings.hasAiWebhook;
+  settings.automationEnabled && settings.aiProvider === "webhook" && settings.hasAiWebhook;
+const canUseAnthropic = (settings: AppSettings) =>
+  settings.automationEnabled && settings.aiProvider === "anthropic-direct" && settings.hasAnthropicApiKey;
 
 const postJson = async <T>(url: string, body: unknown): Promise<T> => {
   const response = await fetch(url, {
@@ -522,7 +524,7 @@ const buildProgramResearchPrompt = (
 export const getAiScopePlan = async (settings: AppSettings, input: ScopePlanInput): Promise<AiScopePlan> => {
   const fallback = createHeuristicScopePlan(input);
 
-  if (!canUseWebhook(settings) && !canUseOpenAiDirect(settings)) {
+  if (!canUseWebhook(settings) && !canUseOpenAiDirect(settings) && !canUseAnthropic(settings)) {
     return fallback;
   }
 
@@ -564,7 +566,7 @@ export const getAiAidPrograms = async (
   }));
   const fallback = createHeuristicProgramPlan(clientIntake, quoteSelections);
 
-  if (!canUseWebhook(settings) && !canUseOpenAiDirect(settings)) {
+  if (!canUseWebhook(settings) && !canUseOpenAiDirect(settings) && !canUseAnthropic(settings)) {
     return fallback;
   }
 
@@ -590,7 +592,7 @@ export const getAiMaterialPlan = async (
 ): Promise<AiMaterialRecommendation[]> => {
   const fallback = createHeuristicMaterialPlan(taskSuggestions);
 
-  if (!canUseWebhook(settings) && !canUseOpenAiDirect(settings)) {
+  if (!canUseWebhook(settings) && !canUseOpenAiDirect(settings) && !canUseAnthropic(settings)) {
     return fallback;
   }
 

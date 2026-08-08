@@ -85,6 +85,29 @@ export const sendQuoteEmail = async (settings, payload) => {
   };
 };
 
+export const sendCandidateNotification = async (settings, applicant, review) => {
+  if (!settings.emailWebhookUrl?.trim()) {
+    return { status: "skipped", message: "Candidate notification email is not configured." };
+  }
+
+  const response = await fetch(settings.emailWebhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "candidate-application",
+      submittedAt: new Date().toISOString(),
+      to: "student.jayla1985@gmail.com",
+      replyTo: applicant.email,
+      subject: `New David's Contracting candidate: ${applicant.firstName} ${applicant.lastName}`,
+      applicant: { ...applicant, resumeText: undefined },
+      review,
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Candidate notification failed with status ${response.status}.`);
+  return { status: "success", message: "Candidate notification email accepted." };
+};
+
 export const sendConsultationConfirmation = async (settings, record, quote) => {
   if (!settings.emailWebhookUrl?.trim()) {
     return {

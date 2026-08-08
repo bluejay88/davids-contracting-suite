@@ -171,3 +171,10 @@ Optional production secrets and endpoints can still be managed from the Admin Se
 
 - `server-data/` is gitignored so local CRM/customer data does not get pushed to GitHub.
 - `.netlify/`, build artifacts, logs, and incremental TypeScript files are also ignored.
+
+## Product strategy and scale docs
+
+- AI market gap analysis: [`docs/ai-market-gap-analysis.md`](./docs/ai-market-gap-analysis.md)
+- 75-feature AI + AR roadmap: [`docs/ai-innovation-roadmap.md`](./docs/ai-innovation-roadmap.md)
+- scalable data platform blueprint: [`docs/scalable-data-platform.md`](./docs/scalable-data-platform.md)
+- starter relational schema: [`docs/postgres-schema.sql`](./docs/postgres-schema.sql)

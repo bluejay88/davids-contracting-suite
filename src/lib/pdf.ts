@@ -77,6 +77,7 @@ export const buildQuotePdfBlob = async (
   quote: QuoteResult,
   client: ClientIntake,
   settings: AppSettings,
+  audience: "customer" | "executive" = "customer",
 ) => {
   const pdf = new jsPDF("p", "mm", "letter");
   const logo = await loadImageAsDataUrl("/davids-contracting-logo.png");
@@ -106,7 +107,7 @@ export const buildQuotePdfBlob = async (
   pdf.setTextColor(223, 186, 102);
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(16);
-  pdf.text("Client Quote & Estimate Range", CONTENT_LEFT, 62);
+  pdf.text(audience === "executive" ? "CONFIDENTIAL - Executive Estimate Dossier" : "Customer Project Estimate", CONTENT_LEFT, 62);
 
   pdf.setTextColor(238, 238, 238);
   pdf.setFont("helvetica", "normal");
@@ -142,13 +143,11 @@ export const buildQuotePdfBlob = async (
     cursorY,
   );
   cursorY += 6;
-  pdf.text(`Markup: ${formatCurrency(quote.totals.markupLow)} - ${formatCurrency(quote.totals.markupHigh)}`, CONTENT_LEFT, cursorY);
-  pdf.text(
-    `Contingency: ${formatCurrency(quote.totals.contingencyLow)} - ${formatCurrency(quote.totals.contingencyHigh)}`,
-    110,
-    cursorY,
-  );
-  cursorY += 6;
+  if (audience === "executive") {
+    pdf.text(`Markup: ${formatCurrency(quote.totals.markupLow)} - ${formatCurrency(quote.totals.markupHigh)}`, CONTENT_LEFT, cursorY);
+    pdf.text(`Contingency: ${formatCurrency(quote.totals.contingencyLow)} - ${formatCurrency(quote.totals.contingencyHigh)}`, 110, cursorY);
+    cursorY += 6;
+  }
   pdf.text(`Tax: ${formatCurrency(quote.totals.taxLow)} - ${formatCurrency(quote.totals.taxHigh)}`, CONTENT_LEFT, cursorY);
   pdf.text(`Travel / Mobilization: ${formatCurrency(quote.totals.travelFee)}`, 110, cursorY);
   cursorY += 6;
@@ -168,6 +167,25 @@ export const buildQuotePdfBlob = async (
   pdf.text(`Estimated labor: ${quote.totals.laborHours.toFixed(1)} hrs`, CONTENT_LEFT, cursorY);
   pdf.text(`Crew / duration: ${quote.suggestedCrewSize} person(s) / about ${quote.estimatedDays} day(s)`, 110, cursorY);
   cursorY += 9;
+
+  if (audience === "executive") {
+    const directLow = quote.totals.laborLow + quote.totals.materialsLow + quote.totals.travelFee + quote.totals.haulAwayFee + quote.totals.permitAllowance;
+    const directHigh = quote.totals.laborHigh + quote.totals.materialsHigh + quote.totals.travelFee + quote.totals.haulAwayFee + quote.totals.permitAllowance;
+    const overheadLow = quote.totals.markupLow * 0.55;
+    const overheadHigh = quote.totals.markupHigh * 0.55;
+    const insuranceLow = quote.totals.markupLow * 0.12;
+    const insuranceHigh = quote.totals.markupHigh * 0.12;
+    const grossLow = quote.totals.totalLow - directHigh - overheadHigh - insuranceHigh;
+    const grossHigh = quote.totals.totalHigh - directLow - overheadLow - insuranceLow;
+    const marginLow = quote.totals.totalLow > 0 ? (grossLow / quote.totals.totalLow) * 100 : 0;
+    const marginHigh = quote.totals.totalHigh > 0 ? (grossHigh / quote.totals.totalHigh) * 100 : 0;
+    cursorY = ensureSpace(pdf, cursorY, 34, "Executive Job Economics");
+    cursorY = drawSectionHeading(pdf, "Executive Job Economics - planning assumptions", cursorY);
+    pdf.text(`Direct job inputs: ${formatCurrency(directLow)} - ${formatCurrency(directHigh)}`, CONTENT_LEFT, cursorY); cursorY += 6;
+    pdf.text(`Overhead reserve: ${formatCurrency(overheadLow)} - ${formatCurrency(overheadHigh)}`, CONTENT_LEFT, cursorY); cursorY += 6;
+    pdf.text(`Insurance/risk reserve: ${formatCurrency(insuranceLow)} - ${formatCurrency(insuranceHigh)}`, CONTENT_LEFT, cursorY); cursorY += 6;
+    pdf.text(`Planning gross contribution: ${formatCurrency(grossLow)} - ${formatCurrency(grossHigh)} (${marginLow.toFixed(1)}% - ${marginHigh.toFixed(1)}%)`, CONTENT_LEFT, cursorY); cursorY += 9;
+  }
 
   cursorY = ensureSpace(pdf, cursorY, 20, "Budget & Payment");
   cursorY = drawSectionHeading(pdf, "Budget & Payment", cursorY);
@@ -260,7 +278,7 @@ export const buildQuotePdfBlob = async (
     cursorY += 1;
   });
 
-  if (quote.healthChecks.length) {
+  if (audience === "executive" && quote.healthChecks.length) {
     cursorY += 3;
     cursorY = ensureSpace(pdf, cursorY, 18, "Estimator Notes");
     pdf.setFont("helvetica", "bold");
@@ -276,3 +294,6 @@ export const buildQuotePdfBlob = async (
 
   return pdf.output("blob");
 };
+
+export const buildExecutiveEstimateDossierPdfBlob = (quote: QuoteResult, client: ClientIntake, settings: AppSettings) =>
+  buildQuotePdfBlob(quote, client, settings, "executive");

@@ -1,5 +1,6 @@
 import {
   AppSettings,
+  AppState,
   AuthRole,
   BootstrapPayload,
   ClientIntake,
@@ -13,11 +14,19 @@ import {
   RecordPayload,
   SaveQuotePayload,
   SettingsPayload,
+  ContactLead,
+  FinancingInquiry,
+  GalleryProject,
+  SiteAnalyticsEvent,
 } from "../types";
 
 const jsonHeaders = {
   "Content-Type": "application/json",
 };
+
+export type OperationsStatePatch = Partial<
+  Pick<AppState, "applicants" | "jobOpenings" | "projects" | "employees" | "materials" | "aiReviews" | "galleryProjects" | "podcastEpisodes" | "podcastEvents">
+>;
 
 const blobToDataUrl = async (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -44,11 +53,11 @@ const requestJson = async <T>(input: RequestInfo | URL, init?: RequestInit): Pro
 
 export const fetchBootstrap = () => requestJson<BootstrapPayload>("/api/bootstrap");
 
-export const loginUser = (role: AuthRole, email: string, password: string) =>
+export const loginUser = (role: AuthRole, email: string, password: string, security: Record<string, unknown>) =>
   requestJson<LoginPayload>("/api/auth/login", {
     method: "POST",
     headers: jsonHeaders,
-    body: JSON.stringify({ role, email, password }),
+    body: JSON.stringify({ role, email, password, ...security }),
   });
 
 export const logoutSession = () =>
@@ -58,11 +67,11 @@ export const logoutSession = () =>
 
 export const fetchAdminDashboard = () => requestJson<DashboardPayload>("/api/admin/dashboard");
 
-export const saveQuoteRecord = (record: CrmRecord, quote: QuoteResult) =>
+export const saveQuoteRecord = (record: CrmRecord, quote: QuoteResult, security: Record<string, unknown> = {}) =>
   requestJson<SaveQuotePayload>("/api/quotes/save", {
     method: "POST",
     headers: jsonHeaders,
-    body: JSON.stringify({ record, quote }),
+    body: JSON.stringify({ record, quote, ...security }),
   });
 
 export const updateAdminSettings = (settings: AppSettings) =>
@@ -70,6 +79,13 @@ export const updateAdminSettings = (settings: AppSettings) =>
     method: "PUT",
     headers: jsonHeaders,
     body: JSON.stringify({ settings }),
+  });
+
+export const updateOperationsState = (patch: OperationsStatePatch) =>
+  requestJson<SettingsPayload>("/api/admin/operations", {
+    method: "PUT",
+    headers: jsonHeaders,
+    body: JSON.stringify({ patch }),
   });
 
 export const updateDashboardRecord = (recordId: string, patch: Partial<CrmRecord>) =>
@@ -103,3 +119,25 @@ export const emailQuote = async (
     }),
   });
 };
+
+export const submitContactLead = (lead: Omit<ContactLead, "id" | "status" | "createdAt">) =>
+  requestJson<{ message: string; id: string }>("/api/contact", { method: "POST", headers: jsonHeaders, body: JSON.stringify(lead) });
+
+export const submitFinancingInquiry = (inquiry: Omit<FinancingInquiry, "id" | "status" | "createdAt">) =>
+  requestJson<{ message: string; id: string }>("/api/financing", { method: "POST", headers: jsonHeaders, body: JSON.stringify(inquiry) });
+
+export const recordAnalyticsEvent = (event: Omit<SiteAnalyticsEvent, "id" | "occurredAt">) =>
+  requestJson<{ message: string }>("/api/analytics", { method: "POST", headers: jsonHeaders, body: JSON.stringify(event) });
+
+export const fetchGallery = () => requestJson<{ projects: GalleryProject[] }>("/api/gallery");
+
+export interface CareersApplicationPayload {
+  firstName: string; lastName: string; email: string; phone: string; city?: string; state?: string;
+  desiredRole?: string; desiredRoles?: string[]; skills: string | string[]; yearsExperience: number;
+  certifications?: string[]; availabilityDate?: string; consentToAiReview: true;
+  answers: Record<string, string | boolean | number>; resumeFileName: string; resumeMimeType: string;
+  resumeSize: number; resumeDataUrl: string; resumeText?: string;
+}
+
+export const submitCareersApplication = (application: CareersApplicationPayload) =>
+  requestJson<{ message: string; applicationId: string }>("/api/careers/apply", { method: "POST", headers: jsonHeaders, body: JSON.stringify(application) });

@@ -3,10 +3,19 @@ import {
   BriefcaseBusiness,
   CircleDollarSign,
   ClipboardCheck,
+  FolderKanban,
   HardHat,
+  Images,
+  Podcast,
+  LayoutDashboard,
   LineChart,
+  LogOut,
+  Menu,
   Search,
+  Settings,
+  Users,
   WalletCards,
+  X,
 } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
@@ -22,6 +31,12 @@ import {
   YAxis,
 } from "recharts";
 import {
+  innovationPillars,
+  launchPriorities,
+  platformModules,
+  totalInnovationCount,
+} from "../data/innovationBlueprint";
+import {
   AppSettings,
   AppState,
   CrmRecord,
@@ -29,12 +44,22 @@ import {
   IntegrationTestResult,
 } from "../types";
 import { formatCurrency } from "../lib/estimates";
+import { OperationsStatePatch } from "../lib/api";
+import { OperationsHub } from "./OperationsHub";
+import { GalleryManager } from "./GalleryManager";
+import { PodcastManager } from "./PodcastManager";
+import { examplePodcastEpisodes, examplePodcastEvents } from "./PodcastPage";
+import { RevenueIntelligence } from "./RevenueIntelligence";
+import { EmployeeManager } from "./EmployeeManager";
 
 interface AdminDashboardProps {
   appState: AppState;
   onUpdateSettings: (settings: AppSettings) => Promise<void>;
   onUpdateRecord: (recordId: string, patch: Partial<CrmRecord>) => Promise<void>;
   onRunIntegrationTest: (kind: IntegrationKey) => Promise<IntegrationTestResult>;
+  onUpdateOperations: (patch: OperationsStatePatch) => Promise<void>;
+  onLogout: () => Promise<void>;
+  authBusy: boolean;
 }
 
 const crewMetrics = [
@@ -75,6 +100,9 @@ export function AdminDashboard({
   onUpdateSettings,
   onUpdateRecord,
   onRunIntegrationTest,
+  onUpdateOperations,
+  onLogout,
+  authBusy,
 }: AdminDashboardProps) {
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -83,6 +111,26 @@ export function AdminDashboard({
   const [updatingRecordId, setUpdatingRecordId] = useState<string | null>(null);
   const [testingIntegration, setTestingIntegration] = useState<IntegrationKey | null>(null);
   const [integrationResults, setIntegrationResults] = useState<Partial<Record<IntegrationKey, IntegrationTestResult>>>({});
+  const [activeTab, setActiveTab] = useState<"overview" | "operations" | "employees" | "gallery" | "podcast" | "crm" | "schedule" | "insights" | "team" | "settings">("overview");
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+
+  const ownerTabs = [
+    { id: "overview", label: "Overview", icon: LayoutDashboard },
+    { id: "operations", label: "Projects & Operations", icon: FolderKanban },
+    { id: "employees", label: "Employees & Pay", icon: HardHat },
+    { id: "gallery", label: "Gallery Uploads", icon: Images },
+    { id: "podcast", label: "Foundation First", icon: Podcast },
+    { id: "crm", label: "Customers & CRM", icon: BriefcaseBusiness },
+    { id: "schedule", label: "Schedule", icon: ClipboardCheck },
+    { id: "insights", label: "Reports & Insights", icon: LineChart },
+    { id: "team", label: "Team & Resources", icon: Users },
+    { id: "settings", label: "Developer Console", icon: Settings },
+  ] as const;
+
+  const selectTab = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    setMobileNavigationOpen(false);
+  };
 
   useEffect(() => {
     setSettingsDraft(appState.settings);
@@ -196,11 +244,56 @@ export function AdminDashboard({
   };
 
   return (
-    <div className="dashboard">
-      <section className="dashboard__hero">
+    <div className="owner-workspace">
+      <button
+        type="button"
+        className="owner-workspace__mobile-toggle"
+        onClick={() => setMobileNavigationOpen((open) => !open)}
+        aria-expanded={mobileNavigationOpen}
+        aria-controls="owner-navigation"
+      >
+        {mobileNavigationOpen ? <X size={20} /> : <Menu size={20} />}
+        <span>{ownerTabs.find((tab) => tab.id === activeTab)?.label}</span>
+      </button>
+      <aside id="owner-navigation" className={`owner-sidebar${mobileNavigationOpen ? " is-open" : ""}`}>
+        <div className="owner-sidebar__identity">
+          <span className="owner-sidebar__mark">DC</span>
+          <div><strong>Owner Workspace</strong><small>David's Contracting</small></div>
+        </div>
+        <nav aria-label="Owner dashboard sections">
+          {ownerTabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                type="button"
+                key={tab.id}
+                className={activeTab === tab.id ? "is-active" : ""}
+                onClick={() => selectTab(tab.id)}
+                aria-current={activeTab === tab.id ? "page" : undefined}
+              >
+                <Icon size={18} /><span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="owner-sidebar__footer">
+          <div className="owner-sidebar__status"><span /> System operational</div>
+          <button type="button" className="owner-sidebar__logout" onClick={() => void onLogout()} disabled={authBusy}>
+            <LogOut size={18} /><span>{authBusy ? "Signing out..." : "Log out"}</span>
+          </button>
+        </div>
+      </aside>
+      {mobileNavigationOpen ? <button className="owner-sidebar__scrim" aria-label="Close navigation" onClick={() => setMobileNavigationOpen(false)} /> : null}
+      <main className="dashboard owner-workspace__content">
+      {activeTab === "operations" ? <OperationsHub appState={appState} onUpdate={onUpdateOperations} /> : null}
+      {activeTab === "employees" ? <EmployeeManager employees={appState.employees} onSave={onUpdateOperations} /> : null}
+      {activeTab === "gallery" ? <GalleryManager projects={appState.galleryProjects} onSave={(galleryProjects) => onUpdateOperations({ galleryProjects })} /> : null}
+      {activeTab === "podcast" ? <PodcastManager episodes={appState.podcastEpisodes.length ? appState.podcastEpisodes : examplePodcastEpisodes} events={appState.podcastEvents.length ? appState.podcastEvents : examplePodcastEvents} onSave={onUpdateOperations} /> : null}
+      {activeTab === "insights" ? <RevenueIntelligence appState={appState} /> : null}
+      {activeTab === "overview" ? <><section className="dashboard__hero">
         <div>
-          <p className="eyebrow">Owner Dashboard</p>
-          <h2>CRM, quote pipeline, materials, payroll, and follow-up in one view.</h2>
+          <p className="eyebrow">Owner control center</p>
+          <h2>Lead, project, team, and cash-flow decisions in one focused workspace.</h2>
           <p>
             This admin layer is designed for fast scanning: outstanding money, open work, reminder pressure, and the
             next moves that keep jobs closing and crews moving.
@@ -214,6 +307,12 @@ export function AdminDashboard({
             placeholder="Search clients, addresses, or requested jobs"
           />
         </div>
+      </section>
+
+      <section className="owner-decision-strip" aria-label="Owner decision snapshot">
+        <div><span>Priority follow-up</span><strong>{kpis.prospects} active prospects</strong><small>Review new estimate requests and consultation needs.</small></div>
+        <div><span>Cash position</span><strong>{formatCurrency(kpis.receivables)} receivable</strong><small>Confirm deposits and upcoming payment milestones.</small></div>
+        <div><span>Operating view</span><strong>{appState.projects.filter((project) => project.status !== "Completed").length} live projects</strong><small>Use Projects &amp; Operations to sequence work and teams.</small></div>
       </section>
 
       <section className="kpi-grid">
@@ -241,11 +340,11 @@ export function AdminDashboard({
           <strong>{kpis.closeRate}%</strong>
           <small>{kpis.completed} completed jobs logged</small>
         </article>
-      </section>
+      </section></> : null}
 
       <section className="dashboard__grid">
         <div className="dashboard__main">
-          <section className="panel">
+          <section className={`panel owner-tab-panel${activeTab === "crm" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Pipeline View</p>
@@ -298,7 +397,7 @@ export function AdminDashboard({
             </div>
           </section>
 
-          <section className="panel">
+          <section className={`panel owner-tab-panel${activeTab === "schedule" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Scheduler</p>
@@ -375,7 +474,7 @@ export function AdminDashboard({
             </div>
           </section>
 
-          <section className="chart-grid">
+          <section className={`chart-grid owner-tab-panel${activeTab === "insights" ? " is-active" : ""}`}>
             <section className="panel">
               <div className="panel__header">
                 <div>
@@ -418,10 +517,50 @@ export function AdminDashboard({
               </div>
             </section>
           </section>
+
+          <section className={`panel owner-tab-panel${activeTab === "insights" ? " is-active" : ""}`}>
+            <div className="panel__header">
+              <div>
+                <p className="eyebrow">AI + AR Blueprint</p>
+                <h3>75 planned upgrades for a stronger contracting platform</h3>
+              </div>
+            </div>
+            <div className="roadmap-kpi-grid">
+              <article className="roadmap-kpi">
+                <strong>{totalInnovationCount}</strong>
+                <span>Total planned enhancements</span>
+                <small>Across AI capture, estimating, CRM, ops, finance, and data infrastructure.</small>
+              </article>
+              <article className="roadmap-kpi">
+                <strong>{innovationPillars.filter((pillar) => pillar.phase === "Now").length}</strong>
+                <span>Immediate pillars</span>
+                <small>Foundations that unlock better quoting accuracy and data scale now.</small>
+              </article>
+              <article className="roadmap-kpi">
+                <strong>{launchPriorities.length}</strong>
+                <span>Near-term launch bets</span>
+                <small>High-leverage features chosen to beat common market pain points first.</small>
+              </article>
+            </div>
+            <div className="roadmap-pillar-list">
+              {innovationPillars.map((pillar) => (
+                <article key={pillar.id} className="stack-block">
+                  <div className="stack-block__title">
+                    <LineChart size={16} />
+                    {pillar.name}
+                  </div>
+                  <p className="helper-text">
+                    {pillar.count} enhancements · {pillar.phase}
+                  </p>
+                  <p className="helper-text">{pillar.summary}</p>
+                </article>
+              ))}
+            </div>
+          </section>
         </div>
 
         <aside className="dashboard__side">
-          <section className="panel">
+          <section className={`panel owner-tab-panel${activeTab === "overview" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Reminders</p>
@@ -440,7 +579,7 @@ export function AdminDashboard({
             </ul>
           </section>
 
-          <section className="panel">
+          <section className={`panel owner-tab-panel${activeTab === "team" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Crew & Payroll</p>
@@ -459,7 +598,7 @@ export function AdminDashboard({
             </ul>
           </section>
 
-          <section className="panel">
+          <section className={`panel owner-tab-panel${activeTab === "team" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Material Watch</p>
@@ -486,7 +625,7 @@ export function AdminDashboard({
             </ul>
           </section>
 
-          <section className="panel">
+          <section className={`panel owner-tab-panel${activeTab === "team" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Documentation</p>
@@ -506,7 +645,46 @@ export function AdminDashboard({
             </ul>
           </section>
 
-          <section className="panel">
+          <section className={`panel owner-tab-panel${activeTab === "insights" ? " is-active" : ""}`}>
+            <div className="panel__header">
+              <div>
+                <p className="eyebrow">Launch Priorities</p>
+                <h3>What to build next</h3>
+              </div>
+              <BriefcaseBusiness size={18} />
+            </div>
+            <ul className="stack-list stack-list--plain">
+              {launchPriorities.map((priority) => (
+                <li key={priority.id}>
+                  <strong>{priority.title}</strong>
+                  <span>{priority.outcome}</span>
+                  <small>{priority.whyNow}</small>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className={`panel owner-tab-panel${activeTab === "insights" ? " is-active" : ""}`}>
+            <div className="panel__header">
+              <div>
+                <p className="eyebrow">Scale Stack</p>
+                <h3>Platform modules for growth</h3>
+              </div>
+              <LineChart size={18} />
+            </div>
+            <ul className="stack-list stack-list--plain">
+              {platformModules.map((module) => (
+                <li key={module.id}>
+                  <strong>{module.name}</strong>
+                  <span>{module.stack}</span>
+                  <small>{module.summary}</small>
+                  <small>Next step: {module.nextStep}</small>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className={`panel owner-tab-panel${activeTab === "settings" ? " is-active" : ""}`}>
             <div className="panel__header">
               <div>
                 <p className="eyebrow">Admin Settings</p>
@@ -620,16 +798,34 @@ export function AdminDashboard({
                 <select
                   value={settingsDraft.aiProvider}
                   onChange={(event) =>
-                    setSettingsDraft((current) => ({
-                      ...current,
-                      aiProvider: event.target.value as AppSettings["aiProvider"],
-                    }))
+                    {
+                      setSettingsDraft((current) => ({
+                        ...current,
+                        aiProvider: event.target.value as AppSettings["aiProvider"],
+                        automationEnabled: false,
+                      }));
+                      setIntegrationResults((current) => ({ ...current, ai: undefined }));
+                    }
                   }
                 >
                   <option value="heuristic">Heuristic fallback</option>
                   <option value="openai-direct">OpenAI direct</option>
+                  <option value="anthropic-direct">Anthropic direct</option>
                   <option value="webhook">Webhook</option>
                 </select>
+              </label>
+              <label className="form-grid__wide developer-activation">
+                <span>Automation pipeline</span>
+                <span className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={settingsDraft.automationEnabled}
+                    disabled={settingsDraft.aiProvider !== "heuristic" && integrationResults.ai?.status !== "success"}
+                    onChange={(event) => setSettingsDraft((current) => ({ ...current, automationEnabled: event.target.checked }))}
+                  />
+                  <span>{settingsDraft.automationEnabled ? "Active" : "Basic online mode"}</span>
+                </span>
+                <small>Live providers must pass the connection test before this switch can be activated.</small>
               </label>
               <label className="form-grid__wide">
                 Google Apps Script URL
@@ -660,6 +856,23 @@ export function AdminDashboard({
                 <input
                   value={settingsDraft.openAiModel}
                   onChange={(event) => setSettingsDraft((current) => ({ ...current, openAiModel: event.target.value }))}
+                />
+              </label>
+              <label className="form-grid__wide">
+                Anthropic API Key
+                <input
+                  type="password"
+                  value={settingsDraft.anthropicApiKey}
+                  onChange={(event) => setSettingsDraft((current) => ({ ...current, anthropicApiKey: event.target.value }))}
+                  placeholder={appState.settings.hasAnthropicApiKey ? "Leave blank to keep stored key" : "sk-ant-..."}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="form-grid__wide">
+                Anthropic Scope / Vision Model
+                <input
+                  value={settingsDraft.anthropicModel}
+                  onChange={(event) => setSettingsDraft((current) => ({ ...current, anthropicModel: event.target.value }))}
                 />
               </label>
               <label>
@@ -865,9 +1078,13 @@ export function AdminDashboard({
                   {settingsDraft.aiProvider === "heuristic"
                     ? "Heuristic mode is local-only and should pass without external credentials."
                     : settingsDraft.aiProvider === "openai-direct"
-                      ? appState.settings.hasOpenAiApiKey
-                        ? "OpenAI direct is configured. Run a live health check against the saved server-side key."
+                      ? appState.settings.hasOpenAiApiKey || appState.settings.hasAiGateway
+                        ? `${appState.settings.hasAiGateway ? "Netlify AI Gateway" : "OpenAI direct"} is configured. Run a live health check before activation.`
                         : "OpenAI direct is selected but no server-side API key is currently stored."
+                      : settingsDraft.aiProvider === "anthropic-direct"
+                        ? appState.settings.hasAnthropicApiKey
+                          ? "Anthropic direct is configured. Run a live health check before activation."
+                          : "Anthropic direct is selected but no server-side API key is currently stored."
                       : appState.settings.hasAiWebhook
                         ? "Webhook mode is configured. The health test pings the saved AI webhook."
                         : "Webhook mode is selected but no AI webhook URL is currently stored."}
@@ -940,6 +1157,7 @@ export function AdminDashboard({
           </section>
         </aside>
       </section>
+      </main>
     </div>
   );
 }

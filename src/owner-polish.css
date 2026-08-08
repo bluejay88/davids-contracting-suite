@@ -1,0 +1,394 @@
+/* Owner workspace refinement: calm executive hierarchy across every operating tab. */
+.owner-workspace,
+.owner-workspace * {
+  box-sizing: border-box;
+}
+
+.owner-workspace {
+  overflow: clip;
+}
+
+.owner-sidebar {
+  max-height: calc(100vh - 96px);
+}
+
+.owner-sidebar nav {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+}
+
+.owner-sidebar nav button,
+.owner-workspace__mobile-toggle,
+.owner-workspace__content button,
+.owner-workspace__content a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.owner-sidebar nav button:focus-visible,
+.owner-workspace__mobile-toggle:focus-visible,
+.owner-workspace__content button:focus-visible,
+.owner-workspace__content a:focus-visible {
+  outline: 3px solid rgba(237, 115, 23, 0.35);
+  outline-offset: 2px;
+}
+
+.owner-workspace__content,
+.owner-workspace__content > *,
+.owner-workspace__content section,
+.owner-workspace__content article,
+.owner-workspace__content div {
+  min-width: 0;
+}
+
+.owner-workspace__content > .operations-hub,
+.owner-workspace__content > .employee-manager,
+.owner-workspace__content > .gallery-manager,
+.owner-workspace__content > .podcast-manager,
+.owner-workspace__content > .revenue-intelligence,
+.owner-workspace__content > .dashboard__grid,
+.owner-workspace__content > .dashboard__hero,
+.owner-workspace__content > .kpi-grid,
+.owner-workspace__content .owner-tab-panel.is-active {
+  animation: owner-workspace-enter 0.24s ease-out both;
+}
+
+@keyframes owner-workspace-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.owner-workspace__content .dashboard__search {
+  min-height: 48px;
+  border: 1px solid var(--owner-border);
+  border-radius: 11px;
+  background: var(--owner-soft);
+  color: var(--owner-muted);
+}
+
+.owner-workspace__content .dashboard__search input {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--owner-ink);
+}
+
+.owner-workspace__content .dashboard__search input::placeholder {
+  color: #7a8794;
+}
+
+.owner-workspace__content .panel__header,
+.owner-workspace__content .gallery-editor__title,
+.owner-workspace__content .gallery-media > header,
+.owner-workspace__content .employee-section-heading,
+.owner-workspace__content .podcast-manager__schedule-title {
+  gap: 1rem;
+}
+
+.owner-workspace__content .panel__header p,
+.owner-workspace__content .gallery-editor__title p,
+.owner-workspace__content .employee-section-heading p,
+.owner-workspace__content .podcast-manager__schedule-title p {
+  margin: 0.28rem 0 0;
+}
+
+.owner-workspace__content .primary-button,
+.owner-workspace__content .secondary-button,
+.owner-workspace__content .ghost-button,
+.owner-workspace__content .button,
+.owner-workspace__content .icon-button {
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.owner-workspace__content .primary-button:hover:not(:disabled),
+.owner-workspace__content .secondary-button:hover:not(:disabled),
+.owner-workspace__content .ghost-button:hover:not(:disabled),
+.owner-workspace__content .button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.owner-decision-strip { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:0 0 1rem;overflow:hidden;border:1px solid var(--owner-border);border-radius:14px;background:var(--owner-border) }
+.owner-decision-strip>div{display:grid;gap:.28rem;padding:1rem 1.15rem;background:#fff}.owner-decision-strip span,.owner-decision-strip small{color:var(--owner-muted)}.owner-decision-strip span{font-size:.76rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}.owner-decision-strip strong{color:var(--owner-ink);font-size:1.05rem}.owner-decision-strip small{line-height:1.45}
+@media(max-width:800px){.owner-decision-strip{grid-template-columns:1fr}}
+
+.owner-workspace__content input,
+.owner-workspace__content select,
+.owner-workspace__content textarea {
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+
+.owner-workspace__content .developer-activation {
+  display: grid;
+  grid-template-columns: minmax(170px, .8fr) minmax(220px, 1fr);
+  align-items: center;
+  gap: .45rem 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--owner-border);
+  border-radius: 12px;
+  background: var(--owner-soft);
+}
+
+.owner-workspace__content .developer-activation > small {
+  grid-column: 1 / -1;
+  color: var(--owner-muted);
+  font-weight: 500;
+}
+
+.owner-workspace__content textarea {
+  min-height: 92px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.owner-workspace__content .form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.owner-workspace__content .form-grid__wide {
+  grid-column: 1 / -1;
+}
+
+.owner-workspace__content .assist-grid {
+  gap: 1rem;
+  margin-block: 1.25rem;
+}
+
+.owner-workspace__content .assist-card {
+  border: 1px solid var(--owner-border);
+  border-radius: 13px;
+  background: var(--owner-soft);
+  box-shadow: none;
+}
+
+.owner-workspace__content .stack-block__title {
+  color: var(--owner-ink);
+  font-size: 0.95rem;
+}
+
+.owner-workspace__content .stack-block li,
+.owner-workspace__content .stack-list--plain > li {
+  line-height: 1.5;
+}
+
+.owner-workspace__content .crm-table {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.owner-workspace__content .crm-row {
+  min-width: 820px;
+}
+
+.owner-workspace__content .employee-manager__hero,
+.owner-workspace__content .employee-editor,
+.owner-workspace__content .employee-directory,
+.owner-workspace__content .employee-manager__metrics article,
+.owner-workspace__content .employee-card {
+  border-color: var(--owner-border);
+  border-radius: 16px;
+  background: var(--owner-surface);
+  box-shadow: var(--owner-shadow);
+}
+
+.owner-workspace__content .employee-card {
+  box-shadow: 0 5px 16px rgba(20, 39, 58, 0.045);
+}
+
+.owner-workspace__content .employee-card dl div {
+  background: var(--owner-soft);
+}
+
+.owner-workspace__content .gallery-manager__layout {
+  grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+  gap: 1.25rem;
+}
+
+.owner-workspace__content .gallery-manager__list {
+  max-height: calc(100vh - 190px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.owner-workspace__content .gallery-editor__grid {
+  gap: 1rem;
+}
+
+.owner-workspace__content .gallery-media article {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 0.9rem;
+  padding: 1.15rem;
+}
+
+.owner-workspace__content .gallery-media article .icon-button {
+  align-self: end;
+}
+
+.owner-workspace__content .podcast-manager {
+  display: grid;
+  gap: 1.15rem;
+}
+
+.owner-workspace__content .podcast-manager > header h2 {
+  margin: 0.15rem 0 0.35rem;
+  color: var(--owner-ink);
+  font-size: clamp(1.65rem, 2.5vw, 2.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.owner-workspace__content .podcast-manager > h3 {
+  margin: 1.1rem 0 0;
+}
+
+.owner-workspace__content .podcast-manager__number {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: #fff2e7;
+  color: #bf5309;
+}
+
+.owner-workspace__content .podcast-manager__fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.owner-workspace__content .podcast-manager__events article {
+  grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 0.8fr) minmax(220px, 1fr) auto auto;
+  gap: 1rem;
+}
+
+.owner-workspace__content .podcast-manager__hint {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  background: #edf6f0;
+  color: #38624a;
+}
+
+.owner-workspace__content .revenue-intelligence__metrics article {
+  min-height: 132px;
+  padding: 1.15rem;
+}
+
+.owner-workspace__content .lead-intelligence-card summary {
+  min-height: 72px;
+  transition: background-color 0.16s ease;
+}
+
+.owner-workspace__content .lead-intelligence-card summary:hover {
+  background: var(--owner-soft);
+}
+
+.owner-workspace__content .lead-intelligence-card[open] summary {
+  background: #fff8f2;
+}
+
+.owner-workspace__content .training-foundation a {
+  border: 1px solid rgba(255, 255, 255, 0.11);
+}
+
+@media (max-width: 1280px) {
+  .owner-workspace__content .form-grid,
+  .owner-workspace__content .podcast-manager__fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .owner-workspace__content .gallery-editor__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .owner-workspace__content .gallery-media article,
+  .owner-workspace__content .podcast-manager__events article {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1000px) {
+  .owner-workspace__content .gallery-manager__layout {
+    grid-template-columns: 1fr;
+  }
+
+  .owner-workspace__content .gallery-manager__list {
+    position: static;
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 820px) {
+  .owner-sidebar {
+    max-height: 100vh;
+  }
+
+  .owner-workspace__content .crm-row {
+    min-width: 760px;
+  }
+
+  .owner-workspace__content .availability-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .owner-workspace__content .availability-row .toggle-row {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 620px) {
+  .owner-workspace__content .form-grid,
+  .owner-workspace__content .gallery-editor__grid,
+  .owner-workspace__content .gallery-media article,
+  .owner-workspace__content .podcast-manager__fields,
+  .owner-workspace__content .podcast-manager__events article,
+  .owner-workspace__content .availability-row {
+    grid-template-columns: 1fr;
+  }
+
+  .owner-workspace__content .form-grid__wide,
+  .owner-workspace__content .gallery-editor__wide,
+  .owner-workspace__content .podcast-manager__fields label:nth-child(2),
+  .owner-workspace__content .podcast-manager__events label:nth-child(4),
+  .owner-workspace__content .availability-row .toggle-row {
+    grid-column: auto;
+  }
+
+  .owner-workspace__content .gallery-manager__list {
+    max-height: 300px;
+  }
+
+  .owner-workspace__content .podcast-manager__list article {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .owner-workspace__content .podcast-manager__list article > .icon-button {
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .owner-workspace__content > *,
+  .owner-workspace__content .owner-tab-panel.is-active {
+    animation: none;
+  }
+
+  .owner-workspace__content *,
+  .owner-sidebar nav button {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

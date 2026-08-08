@@ -1,18 +1,22 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   buildAdminState,
   buildPublicState,
   buildQuoteState,
   readPersistedState,
   saveQuoteRecord,
+  savePublicIntake,
+  storeApplicantResume,
   updateAppSettings,
   updateCrmRecord,
+  updateOperationsState,
   verifyAdminPassword,
   verifyStaffPassword,
 } from "./_shared/state.mjs";
 import {
   pushRecordToGoogleSheets,
   sendConsultationConfirmation,
+  sendCandidateNotification,
   sendQuoteEmail,
   testEmailWebhook,
   testGoogleSheetsConnection,
@@ -25,8 +29,15 @@ import {
   testAiProvider,
 } from "../../server/ai-proxy.mjs";
 
-const sessionCookieName = "davids_contracting_session";
+const sessionCookieName = "__Host-davids_contracting_session";
 const sessionTtlMs = 1000 * 60 * 60 * 12;
+const maxJsonBodyBytes = 16 * 1024 * 1024;
+const securityHeaders = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), geolocation=(), payment=(), usb=()",
+};
 
 const parseCookies = (cookieHeader) =>
   (cookieHeader || "")
@@ -53,15 +64,32 @@ const jsonResponse = (payload, status = 200, headers = {}) =>
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
+      ...securityHeaders,
       ...headers,
     },
   });
 
 const parseJsonBody = async (request) => {
+  const declaredLength = Number(request.headers.get("content-length") || 0);
+  if (declaredLength > maxJsonBodyBytes) {
+    const error = new Error("Request body exceeded the 16MB safety limit.");
+    error.status = 413;
+    throw error;
+  }
+
+  const raw = await request.text();
+  if (Buffer.byteLength(raw, "utf8") > maxJsonBodyBytes) {
+    const error = new Error("Request body exceeded the 16MB safety limit.");
+    error.status = 413;
+    throw error;
+  }
+
   try {
-    return await request.json();
+    return raw ? JSON.parse(raw) : {};
   } catch {
-    return {};
+    const error = new Error("Request body was not valid JSON.");
+    error.status = 400;
+    throw error;
   }
 };
 
@@ -106,6 +134,19 @@ const requireSameOrigin = (request) => {
   return null;
 };
 
+const cleanText = (value, max = 500) => String(value ?? "").trim().slice(0, max);
+const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const publicId = (prefix) => `${prefix}-${randomBytes(12).toString("hex")}`;
+const requireFields = (body, fields) => { const missing = fields.filter((field) => !cleanText(body[field])); if (missing.length) throw Object.assign(new Error(`Missing required field(s): ${missing.join(", ")}.`), { status: 400 }); };
+const parseResume = (body) => {
+  const mimeType = cleanText(body.resumeMimeType, 120); const allowed = new Map([["application/pdf", "pdf"], ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"]]);
+  if (!allowed.has(mimeType)) throw Object.assign(new Error("Resume must be a PDF or DOCX file."), { status: 400 });
+  const prefix = `data:${mimeType};base64,`; if (typeof body.resumeDataUrl !== "string" || !body.resumeDataUrl.startsWith(prefix)) throw Object.assign(new Error("Resume upload payload is invalid."), { status: 400 });
+  const data = Buffer.from(body.resumeDataUrl.slice(prefix.length), "base64"); if (!data.length || data.length > 6 * 1024 * 1024) throw Object.assign(new Error("Resume must be no larger than 6MB."), { status: 413 });
+  const signatureOk = mimeType === "application/pdf" ? data.subarray(0, 5).toString() === "%PDF-" : data[0] === 0x50 && data[1] === 0x4b; if (!signatureOk) throw Object.assign(new Error("Resume file signature does not match its declared type."), { status: 400 });
+  return { data, mimeType, extension: allowed.get(mimeType), fileName: cleanText(body.resumeFileName, 180) || `resume.${allowed.get(mimeType)}` };
+};
+
 const base64UrlEncode = (value) =>
   Buffer.from(value)
     .toString("base64")
@@ -127,7 +168,7 @@ const getSessionSecret = (persistedState) =>
 const signPayload = (secret, payload) => createHmac("sha256", secret).update(payload).digest("hex");
 
 const makeSessionCookie = (cookieValue, clear = false) =>
-  `${sessionCookieName}=${clear ? "" : encodeURIComponent(cookieValue)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${clear ? 0 : 43200}`;
+  `${sessionCookieName}=${clear ? "" : encodeURIComponent(cookieValue)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${clear ? 0 : 43200}`;
 
 const createSessionToken = (persistedState, role, email) => {
   const payload = {
@@ -186,6 +227,14 @@ const requireAdminAuth = (request, persistedState) => {
   return null;
 };
 
+const requireQuoteAuth = (request, persistedState) => {
+  const role = getSessionRole(request, persistedState);
+  if (role !== "staff" && role !== "admin") {
+    return jsonResponse({ message: "Contractor or estimator login is required for this route." }, 401);
+  }
+  return null;
+};
+
 const buildStateForRole = (persistedState, role) => {
   if (role === "admin") {
     return buildAdminState(persistedState);
@@ -205,8 +254,8 @@ const handleBootstrap = async (request, persistedState) => {
     sessionRole,
     hasQuoteSession: sessionRole === "staff" || sessionRole === "admin",
     hasAdminSession: sessionRole === "admin",
-    adminEmailHint: persistedState.appState.settings.adminEmail,
-    staffEmailHint: persistedState.appState.settings.staffEmail,
+    adminEmailHint: "",
+    staffEmailHint: "",
     appState: buildStateForRole(persistedState, sessionRole),
   });
 };
@@ -218,6 +267,7 @@ const handleLogin = async (request, persistedState) => {
   }
 
   const body = await parseJsonBody(request);
+  validatePublicFormSecurity(body, request, "login");
   const role = body.role === "staff" || body.role === "admin" ? body.role : null;
   if (!role) {
     return jsonResponse(
@@ -232,11 +282,13 @@ const handleLogin = async (request, persistedState) => {
   const password = String(body.password || "");
   const expectedEmail =
     role === "admin"
-      ? persistedState.appState.settings.adminEmail.trim().toLowerCase()
+      ? String(process.env.DC_OWNER_USERNAME || persistedState.appState.settings.adminEmail).trim().toLowerCase()
       : persistedState.appState.settings.staffEmail.trim().toLowerCase();
   const passwordMatches =
     role === "admin"
-      ? verifyAdminPassword(persistedState, password)
+      ? process.env.DC_OWNER_PASSWORD
+        ? password === process.env.DC_OWNER_PASSWORD
+        : verifyAdminPassword(persistedState, password)
       : verifyStaffPassword(persistedState, password);
 
   if (email !== expectedEmail || !passwordMatches) {
@@ -282,6 +334,55 @@ const handleLogout = async (request) => {
   );
 };
 
+const sanitizePublicEstimateRequest = (record, quote) => {
+  const client = record?.client && typeof record.client === "object" ? record.client : {};
+  requireFields(client, ["firstName", "lastName", "email", "phone", "requestedJobs"]);
+  if (!validEmail(cleanText(client.email, 254))) throw Object.assign(new Error("A valid email is required."), { status: 400 });
+  if (client.consentEmailContact !== true && client.consentSmsContact !== true) throw Object.assign(new Error("Consent to email or text contact is required."), { status: 400 });
+
+  const selections = Array.isArray(quote?.selections) ? quote.selections.slice(0, 80).map((selection) => ({
+    taskId: cleanText(selection?.taskId, 120),
+    quantity: Math.min(100000, Math.max(0, Number(selection?.quantity) || 0)),
+    scopeNote: cleanText(selection?.scopeNote, 1000),
+    conditionMultiplier: Math.min(3, Math.max(.5, Number(selection?.conditionMultiplier) || 1)),
+    complexityMultiplier: Math.min(3, Math.max(.5, Number(selection?.complexityMultiplier) || 1)),
+  })).filter((selection) => selection.taskId && selection.quantity > 0) : [];
+  if (!selections.length) throw Object.assign(new Error("Add at least one valid scoped task before sending an estimate request."), { status: 400 });
+
+  const rawLow = Number(quote?.totals?.totalLow);
+  const rawHigh = Number(quote?.totals?.totalHigh);
+  if (!Number.isFinite(rawLow) || !Number.isFinite(rawHigh) || rawLow < 0 || rawHigh < rawLow || rawHigh > 10000000) throw Object.assign(new Error("Estimate totals were outside the accepted planning range."), { status: 400 });
+  const allowedCategories = new Set(["painting", "flooring", "roofing", "electrical-hvac", "handyman"]);
+  const categories = Array.isArray(quote?.categories) ? quote.categories.map((value) => cleanText(value, 40)).filter((value) => allowedCategories.has(value)).slice(0, 5) : [];
+  const now = new Date().toISOString();
+  const safeMoney = (value) => Math.min(10000000, Math.max(0, Number(value) || 0));
+  const breakdown = Array.isArray(quote?.breakdown) ? quote.breakdown.slice(0, 80).map((line) => ({
+    taskId: cleanText(line?.taskId, 120), category: allowedCategories.has(line?.category) ? line.category : "handyman", taskName: cleanText(line?.taskName, 180), quantity: Math.min(100000, Math.max(0, Number(line?.quantity) || 0)), unitLabel: cleanText(line?.unitLabel, 80), scopeNote: cleanText(line?.scopeNote, 1000), lowLabor: safeMoney(line?.lowLabor), highLabor: safeMoney(line?.highLabor), lowMaterials: safeMoney(line?.lowMaterials), highMaterials: safeMoney(line?.highMaterials), lowTotal: safeMoney(line?.lowTotal), highTotal: safeMoney(line?.highTotal), laborHours: Math.min(100000, Math.max(0, Number(line?.laborHours) || 0)), customaryIncludes: Array.isArray(line?.customaryIncludes) ? line.customaryIncludes.slice(0, 12).map((value) => cleanText(value, 300)) : [], customaryExcludes: Array.isArray(line?.customaryExcludes) ? line.customaryExcludes.slice(0, 12).map((value) => cleanText(value, 300)) : [], materials: [],
+  })).filter((line) => line.taskId && line.quantity > 0) : [];
+  const safeQuote = {
+    id: publicId("quote"),
+    projectTitle: cleanText(quote?.projectTitle, 160) || "Website Estimate Request",
+    projectSummary: cleanText(quote?.projectSummary, 4000),
+    categories,
+    selections,
+    breakdown,
+    categoryTotals: [], materialRollup: [], assumptions: ["Website planning range requires Owner review and field verification."], exclusions: ["This online planning range is not a contract or final proposal."], paymentSchedule: [], budgetFit: { status: "unknown", varianceLow: 0, varianceHigh: 0, note: "Owner review required." }, healthChecks: [{ severity: "warning", message: "Public planning estimate requires field verification." }], options: {}, validityDays: 14, quoteExpiresAt: new Date(Date.now() + 14 * 86400000).toISOString(), estimatedDays: Math.min(365, Math.max(1, Number(quote?.estimatedDays) || 1)), suggestedCrewSize: Math.min(20, Math.max(1, Number(quote?.suggestedCrewSize) || 1)),
+    generatedAt: now,
+    totals: { laborLow: 0, laborHigh: 0, materialsLow: 0, materialsHigh: 0, subtotalLow: 0, subtotalHigh: 0, markupLow: 0, markupHigh: 0, contingencyLow: 0, contingencyHigh: 0, taxLow: 0, taxHigh: 0, travelFee: 0, haulAwayFee: 0, permitAllowance: 0, discountLow: 0, discountHigh: 0, totalLow: Math.round(rawLow * 100) / 100, totalHigh: Math.round(rawHigh * 100) / 100, laborHours: breakdown.reduce((sum, line) => sum + line.laborHours, 0) },
+    planningEstimate: true,
+    priceVerificationStatus: "Owner review required",
+  };
+  const safeRecord = {
+    id: publicId("crm"),
+    source: "public-estimate",
+    client: {
+      firstName: cleanText(client.firstName, 80), lastName: cleanText(client.lastName, 80), address: cleanText(client.address, 180), city: cleanText(client.city, 100), state: cleanText(client.state, 40) || "IL", zip: cleanText(client.zip, 20), email: cleanText(client.email, 254).toLowerCase(), phone: cleanText(client.phone, 40), budget: Math.min(10000000, Math.max(0, Number(client.budget) || 0)), emergencyIssues: cleanText(client.emergencyIssues, 2000), requestedJobs: cleanText(client.requestedJobs, 4000), date: cleanText(client.date, 20), jobStatus: "Prospecting/Negotiating", declineReason: "", declineOtherReason: "", notes: cleanText(client.notes, 4000), paymentCollected: false, paymentAmount: 0, assignedRep: "", aidSuggestions: Array.isArray(client.aidSuggestions) ? client.aidSuggestions.slice(0, 10).map((value) => cleanText(value, 160)) : [], consentEmailContact: client.consentEmailContact === true, consentSmsContact: client.consentSmsContact === true, consentMarketing: client.consentMarketing === true, consultationRequested: client.consultationRequested === true, consultationDate: cleanText(client.consultationDate, 20), consultationTime: cleanText(client.consultationTime, 20), consultationNotes: cleanText(client.consultationNotes, 2000), consultationStatus: client.consultationRequested === true ? "Requested" : "None",
+    },
+    quoteHistory: [safeQuote], paymentDue: 0, lastContactedAt: "", nextFollowUpAt: now.slice(0, 10), invoiceStatus: "Open", crewLead: "", documentation: [],
+  };
+  return { record: safeRecord, quote: safeQuote };
+};
+
 const handleSaveQuote = async (request, persistedState) => {
   const originError = requireSameOrigin(request);
   if (originError) {
@@ -289,8 +390,16 @@ const handleSaveQuote = async (request, persistedState) => {
   }
 
   const body = await parseJsonBody(request);
-  const record = body.record;
-  const quote = body.quote;
+  const sessionRole = getSessionRole(request, persistedState);
+  let record = body.record;
+  let quote = body.quote;
+  if (sessionRole === "public") {
+    validatePublicFormSecurity(body, request, "estimate");
+    ({ record, quote } = sanitizePublicEstimateRequest(record, quote));
+  } else {
+    const authError = requireQuoteAuth(request, persistedState);
+    if (authError) return authError;
+  }
 
   if (!record || !quote) {
     return jsonResponse(
@@ -344,6 +453,7 @@ const handleSaveQuote = async (request, persistedState) => {
   }
 
   return jsonResponse({
+    recordId: record.id,
     message:
       syncStatus.status === "success"
         ? consultationStatus.status === "success"
@@ -389,6 +499,25 @@ const handleSettingsUpdate = async (request, persistedState) => {
   return jsonResponse({
     appState: buildAdminState(nextState),
     message: "Admin settings updated on the secure server.",
+  });
+};
+
+const handleOperationsUpdate = async (request, persistedState) => {
+  const originError = requireSameOrigin(request);
+  if (originError) {
+    return originError;
+  }
+
+  const authError = requireAdminAuth(request, persistedState);
+  if (authError) {
+    return authError;
+  }
+
+  const body = await parseJsonBody(request);
+  const nextState = await updateOperationsState(body.patch || {});
+  return jsonResponse({
+    appState: buildAdminState(nextState),
+    message: "Operational workspace updated on the secure server.",
   });
 };
 
@@ -492,6 +621,11 @@ const handleQuoteEmail = async (request, persistedState) => {
     return originError;
   }
 
+  const authError = requireQuoteAuth(request, persistedState);
+  if (authError) {
+    return authError;
+  }
+
   const body = await parseJsonBody(request);
 
   if (!body.client?.email) {
@@ -530,8 +664,56 @@ const handleAiRequest = async (request, persistedState, resolver) => {
     return originError;
   }
 
+  const authError = requireQuoteAuth(request, persistedState);
+  if (authError) {
+    return authError;
+  }
+
   const body = await parseJsonBody(request);
   return jsonResponse(await resolver(persistedState.appState.settings, persistedState.secrets, body));
+};
+
+const publicSubmissionWindows = new Map();
+const validatePublicFormSecurity = (body, request, kind) => {
+  if (cleanText(body.website, 200)) throw Object.assign(new Error("Submission could not be verified."), { status: 400 });
+  const startedAt = Number(body.formStartedAt); const age = Date.now() - startedAt;
+  if (!Number.isFinite(startedAt) || age < 1500 || age > 2 * 60 * 60 * 1000) throw Object.assign(new Error("Please refresh the form and complete the security check again."), { status: 400 });
+  const a = Number(body.challengeA); const b = Number(body.challengeB); const answer = Number(body.challengeAnswer);
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 2 || b < 2 || a > 8 || b > 8 || answer !== a + b) throw Object.assign(new Error("The security answer is incorrect."), { status: 400 });
+  const client = cleanText(request.headers.get("x-nf-client-connection-ip") || request.headers.get("x-forwarded-for") || "unknown", 100).split(",")[0];
+  const key = `${kind}:${client}`; const now = Date.now(); const recent = (publicSubmissionWindows.get(key) || []).filter((stamp) => now - stamp < 15 * 60 * 1000);
+  if (recent.length >= 6) throw Object.assign(new Error("Too many submissions. Please wait and try again."), { status: 429 });
+  publicSubmissionWindows.set(key, [...recent, now]);
+};
+
+const handlePublicIntake = async (request, kind) => {
+  const originError = requireSameOrigin(request); if (originError) return originError;
+  const body = await parseJsonBody(request); if (kind !== "analytics") validatePublicFormSecurity(body, request, kind); const now = new Date().toISOString();
+  if (kind === "contact") {
+    requireFields(body, ["firstName", "lastName", "email", "phone", "message"]); if (!validEmail(cleanText(body.email, 254)) || body.consentToContact !== true) throw Object.assign(new Error("A valid email and consent to contact are required."), { status: 400 });
+    const record = { id: publicId("lead"), firstName: cleanText(body.firstName, 80), lastName: cleanText(body.lastName, 80), email: cleanText(body.email, 254).toLowerCase(), phone: cleanText(body.phone, 40), preferredContact: ["Email", "Phone", "Text"].includes(body.preferredContact) ? body.preferredContact : "Phone", serviceInterest: Array.isArray(body.serviceInterest) ? body.serviceInterest.slice(0, 10).map((v) => cleanText(v, 80)).filter(Boolean) : [], message: cleanText(body.message, 4000), financingInterest: body.financingInterest === true, consentToContact: true, status: "New", createdAt: now };
+    await savePublicIntake("contactLeads", record); return jsonResponse({ message: "Thank you. Your request has been received.", id: record.id }, 201);
+  }
+  if (kind === "financing") {
+    requireFields(body, ["firstName", "lastName", "email", "phone", "projectType", "financingGoals"]); if (!validEmail(cleanText(body.email, 254)) || body.consentToContact !== true) throw Object.assign(new Error("A valid email and consent to contact are required."), { status: 400 }); const amount = (value) => Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.min(Number(value), 10000000) : null;
+    const record = { id: publicId("finance"), firstName: cleanText(body.firstName, 80), lastName: cleanText(body.lastName, 80), email: cleanText(body.email, 254).toLowerCase(), phone: cleanText(body.phone, 40), projectType: cleanText(body.projectType, 160), estimatedProjectCost: amount(body.estimatedProjectCost), requestedAmount: amount(body.requestedAmount), timeline: cleanText(body.timeline, 160), financingGoals: cleanText(body.financingGoals, 4000), estimateRecordId: cleanText(body.estimateRecordId, 128), consentToContact: true, status: "New", createdAt: now };
+    await savePublicIntake("financingInquiries", record); return jsonResponse({ message: "Your financing inquiry has been received for owner review.", id: record.id }, 201);
+  }
+  const allowedEvents = ["page_view", "page_leave", "cta_click", "service_interest", "financing_resource_click"]; if (!allowedEvents.includes(body.eventType)) throw Object.assign(new Error("Unsupported analytics event."), { status: 400 });
+  const record = { id: publicId("event"), anonymousSessionId: cleanText(body.anonymousSessionId, 80), eventType: body.eventType, page: cleanText(body.page, 120), target: cleanText(body.target, 200), durationSeconds: Number.isFinite(Number(body.durationSeconds)) ? Math.max(0, Math.min(86400, Number(body.durationSeconds))) : null, occurredAt: now };
+  await savePublicIntake("analyticsEvents", record); return jsonResponse({ message: "Event accepted." }, 202);
+};
+
+const handleCareersApply = async (request) => {
+  const originError = requireSameOrigin(request); if (originError) return originError; const body = await parseJsonBody(request); validatePublicFormSecurity(body, request, "careers"); requireFields(body, ["firstName", "lastName", "email", "phone"]);
+  if (!validEmail(cleanText(body.email, 254)) || body.consentToAiReview !== true) throw Object.assign(new Error("A valid email and consent to application review are required."), { status: 400 }); const rawAnswers = body.answers && typeof body.answers === "object" && !Array.isArray(body.answers) ? body.answers : {}; const answers = Object.fromEntries(Object.entries(rawAnswers).slice(0, 30).map(([key, value]) => [cleanText(key, 100), typeof value === "boolean" || typeof value === "number" ? value : cleanText(value, 2000)]).filter(([key]) => key));
+  if (Object.keys(answers).filter((key) => cleanText(answers[key], 2000)).length < 10) throw Object.assign(new Error("Please answer at least 10 application questions."), { status: 400 });
+  const resume = parseResume(body); const storageKey = await storeApplicantResume(resume); const now = new Date().toISOString(); const skills = Array.isArray(body.skills) ? body.skills.slice(0, 30).map((v) => cleanText(v, 80)).filter(Boolean) : cleanText(body.skills, 1000).split(",").map((v) => v.trim()).filter(Boolean).slice(0, 30); const years = Math.max(0, Math.min(60, Number(body.yearsExperience) || 0)); const answerScore = Math.min(35, Object.keys(answers).filter((key) => cleanText(answers[key], 2000)).length * 2); const skillsScore = Math.min(100, 20 + skills.length * 8 + years * 3); const score = Math.round(Math.min(100, answerScore + skillsScore * .55 + 10));
+  const applicant = { id: publicId("applicant"), firstName: cleanText(body.firstName, 80), lastName: cleanText(body.lastName, 80), email: cleanText(body.email, 254).toLowerCase(), phone: cleanText(body.phone, 40), city: cleanText(body.city, 100), state: cleanText(body.state, 40) || "IL", source: "Website", desiredRoles: Array.isArray(body.desiredRoles) ? body.desiredRoles.slice(0, 5).map((v) => cleanText(v, 100)) : [cleanText(body.desiredRole, 100)].filter(Boolean), skills, yearsExperience: years, certifications: Array.isArray(body.certifications) ? body.certifications.slice(0, 20).map((v) => cleanText(v, 120)) : [], availabilityDate: cleanText(body.availabilityDate, 20), employmentPreference: ["Full-time"], stage: "New", assignedTo: "", resumeFileName: resume.fileName, resumeText: cleanText(body.resumeText, 50000), resume: { fileName: resume.fileName, mimeType: resume.mimeType, size: resume.data.length, storageKey }, notes: "", consentToAiReview: true, applicationAnswers: answers, createdAt: now, updatedAt: now };
+  const review = { id: publicId("review"), subjectType: "Applicant", subjectId: applicant.id, reviewType: "Job Readiness", status: "Needs Human Review", provider: "explainable-rules", model: "public-application-v1", score, summary: `Preliminary readiness score based on ${skills.length} reported skills, ${years} years of experience, and ${Object.keys(answers).length} questionnaire responses.`, strengths: skills.slice(0, 5), gaps: skills.length ? [] : ["Skills require recruiter validation"], recommendations: ["Complete a structured human interview", "Verify experience, training, certifications, and work eligibility"], evidence: ["Applicant questionnaire", "Applicant-provided resume metadata", "Self-reported skills and experience"], confidence: .62, humanDecision: "Pending", reviewedBy: "", createdAt: now, completedAt: now };
+  const savedState = await savePublicIntake("applicants", applicant, review); let notificationStatus = "skipped";
+  try { notificationStatus = (await sendCandidateNotification(savedState.appState.settings, applicant, review)).status; } catch { notificationStatus = "failed"; }
+  return jsonResponse({ message: "Thank you for submitting your information for consideration. If work becomes available, someone from our office will reach out to you.", applicationId: applicant.id, notificationStatus }, 201);
 };
 
 export default async (request) => {
@@ -542,9 +724,14 @@ export default async (request) => {
     if (request.method === "GET" && pathname === "/api/bootstrap") {
       return handleBootstrap(request, persistedState);
     }
+    if (request.method === "GET" && pathname === "/api/gallery") return jsonResponse({ projects: buildPublicState(persistedState).galleryProjects });
+    if (request.method === "POST" && pathname === "/api/contact") return await handlePublicIntake(request, "contact");
+    if (request.method === "POST" && pathname === "/api/financing") return await handlePublicIntake(request, "financing");
+    if (request.method === "POST" && pathname === "/api/analytics") return await handlePublicIntake(request, "analytics");
+    if (request.method === "POST" && pathname === "/api/careers/apply") return await handleCareersApply(request);
 
     if (request.method === "POST" && pathname === "/api/auth/login") {
-      return handleLogin(request, persistedState);
+      return await handleLogin(request, persistedState);
     }
 
     if (request.method === "POST" && pathname === "/api/auth/logout") {
@@ -557,6 +744,10 @@ export default async (request) => {
 
     if (request.method === "PUT" && pathname === "/api/admin/settings") {
       return handleSettingsUpdate(request, persistedState);
+    }
+
+    if (request.method === "PUT" && pathname === "/api/admin/operations") {
+      return handleOperationsUpdate(request, persistedState);
     }
 
     if (request.method === "POST" && pathname === "/api/admin/integrations/test") {
@@ -603,7 +794,7 @@ export default async (request) => {
       {
         message: error instanceof Error ? error.message : "Netlify API request failed.",
       },
-      500,
+      Number(error?.status) || 500,
     );
   }
 };

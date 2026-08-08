@@ -1,7 +1,11 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AdminDashboard } from "./components/AdminDashboard";
 import { LandingPage } from "./components/LandingPage";
 import { QuoteBuilder } from "./components/QuoteBuilder";
+import { CareersPage, ContactPage, FinancingPage, GalleryPage } from "./components/PublicPages";
+import { PodcastPage } from "./components/PodcastPage";
+import { useFormSecurity } from "./components/FormSecurityChallenge";
+import { CookieAccessibilityCenter, SiteAssistant } from "./components/SiteExperience";
 import { initialAppState } from "./data/mockData";
 import {
   fetchAdminDashboard,
@@ -12,6 +16,7 @@ import {
   saveQuoteRecord,
   updateAdminSettings,
   updateDashboardRecord,
+  updateOperationsState,
 } from "./lib/api";
 import {
   AppSettings,
@@ -23,16 +28,24 @@ import {
   SessionRole,
 } from "./types";
 
-type ViewKey = "landing" | "quote" | "crm";
+type ViewKey = "landing" | "quote" | "gallery" | "podcast" | "financing" | "careers" | "contact" | "crm";
 
 const initialPublicState: AppState = {
   ...initialAppState,
   crmRecords: [],
   reminders: [],
   historicalJobs: [],
+  applicants: [],
+  jobOpenings: [],
+  projects: [],
+  employees: [],
+  materials: [],
+  aiReviews: [],
 };
 
 export default function App() {
+  const secureSessionKey = "dc-secure-session-active";
+  const { securityPayload: loginSecurityPayload, securityFields: loginSecurityFields } = useFormSecurity();
   const [appState, setAppState] = useState<AppState>(initialPublicState);
   const [activeView, setActiveView] = useState<ViewKey>("landing");
   const [sessionRole, setSessionRole] = useState<SessionRole>("public");
@@ -43,11 +56,12 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [notice, setNotice] = useState("");
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [bootstrapError, setBootstrapError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
-  const [adminEmailHint, setAdminEmailHint] = useState("owner@davidscontracting.local");
-  const [staffEmailHint, setStaffEmailHint] = useState("estimator@davidscontracting.local");
+  const [adminEmailHint, setAdminEmailHint] = useState("");
+  const [staffEmailHint, setStaffEmailHint] = useState("");
+  const loginDialogRef = useRef<HTMLDivElement>(null);
+  const loginReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const hasQuoteSession = sessionRole === "staff" || sessionRole === "admin";
   const hasAdminSession = sessionRole === "admin";
@@ -58,16 +72,20 @@ export default function App() {
     setSessionRole(payload.sessionRole);
     setAdminEmailHint(payload.adminEmailHint);
     setStaffEmailHint(payload.staffEmailHint);
-    setLoginEmail(payload.sessionRole === "admin" ? payload.adminEmailHint : payload.staffEmailHint);
+    if (payload.sessionRole === "public") {
+      sessionStorage.removeItem(secureSessionKey);
+    }
     return payload;
   };
 
   useEffect(() => {
     const bootstrap = async () => {
-      setIsBootstrapping(true);
       setBootstrapError("");
 
       try {
+        if (sessionStorage.getItem(secureSessionKey) !== "true") {
+          await logoutSession().catch(() => undefined);
+        }
         await syncBootstrap();
       } catch (error) {
         setBootstrapError(
@@ -75,8 +93,6 @@ export default function App() {
             ? error.message
             : "Unable to load the application shell from the secure server.",
         );
-      } finally {
-        setIsBootstrapping(false);
       }
     };
 
@@ -91,6 +107,47 @@ export default function App() {
     const timeout = window.setTimeout(() => setNotice(""), 4500);
     return () => window.clearTimeout(timeout);
   }, [notice]);
+
+  useEffect(() => {
+    if (!showLogin) return;
+    loginReturnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = loginDialogRef.current;
+    const focusable = dialog?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href]');
+    focusable?.[0]?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setShowLogin(false);
+        return;
+      }
+      if (event.key !== "Tab" || !focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      loginReturnFocusRef.current?.focus();
+    };
+  }, [showLogin]);
+
+  useEffect(() => {
+    if (localStorage.getItem("dc-cookie-consent") !== "analytics") return;
+    const startedAt = Date.now();
+    const anonymousSessionId = sessionStorage.getItem("dc_analytics_session") || crypto.randomUUID();
+    sessionStorage.setItem("dc_analytics_session", anonymousSessionId);
+    void fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ anonymousSessionId, eventType: "page_view", page: activeView }) }).catch(() => undefined);
+    return () => { void fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ anonymousSessionId, eventType: "page_leave", page: activeView, durationSeconds: Math.round((Date.now()-startedAt)/1000) }) }).catch(() => undefined); };
+  }, [activeView]);
 
   const openSecureAccess = (mode: AuthRole, nextView: ViewKey) => {
     setLoginMode(mode);
@@ -140,9 +197,10 @@ export default function App() {
     setLoginError("");
 
     try {
-      const payload = await loginUser(loginMode, loginEmail, loginPassword);
+      const payload = await loginUser(loginMode, loginEmail, loginPassword, loginSecurityPayload);
       setAppState(payload.appState);
       setSessionRole(payload.sessionRole);
+      sessionStorage.setItem(secureSessionKey, "true");
       setShowLogin(false);
       setActiveView(postLoginView);
       setLoginPassword("");
@@ -162,13 +220,16 @@ export default function App() {
 
   const handleLogout = async () => {
     setAuthBusy(true);
+    sessionStorage.removeItem(secureSessionKey);
+    setSessionRole("public");
+    setAppState(initialPublicState);
+    setActiveView("landing");
+    setShowLogin(false);
+    setLoginPassword("");
 
     try {
       await logoutSession();
       await syncBootstrap();
-      setSessionRole("public");
-      setActiveView("landing");
-      setLoginPassword("");
       setNotice("Secure session closed.");
     } catch (error) {
       setNotice(
@@ -179,9 +240,9 @@ export default function App() {
     }
   };
 
-  const handleSaveRecord = async (record: CrmRecord, quote: QuoteResult) => {
+  const handleSaveRecord = async (record: CrmRecord, quote: QuoteResult, security: Record<string, unknown> = {}) => {
     try {
-      const payload = await saveQuoteRecord(record, quote);
+      const payload = await saveQuoteRecord(record, quote, security);
       setAppState(payload.appState);
       setNotice(payload.message);
     } catch (error) {
@@ -217,54 +278,40 @@ export default function App() {
     return result;
   };
 
+  const handleOperationsUpdate = async (patch: Parameters<typeof updateOperationsState>[0]) => {
+    try {
+      const payload = await updateOperationsState(patch);
+      setAppState(payload.appState);
+      setNotice(payload.message);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Operations update failed.");
+      throw error;
+    }
+  };
+
   const navItems = useMemo(
     () => [
-      { key: "landing" as const, label: "Brand Site" },
-      { key: "quote" as const, label: "Estimate Builder" },
-      { key: "crm" as const, label: "Admin CRM" },
+      { key: "landing" as const, label: "Home" },
+      { key: "gallery" as const, label: "Gallery" },
+      { key: "podcast" as const, label: "Foundation First — Podcast" },
+      { key: "quote" as const, label: "Estimate" },
+      { key: "financing" as const, label: "Financing" },
+      { key: "careers" as const, label: "Careers" },
+      { key: "contact" as const, label: "Contact" },
     ],
     [],
   );
 
-  if (isBootstrapping) {
-    return (
-      <div className="app-shell">
-        <main>
-          <section className="locked-state">
-            <p className="eyebrow">Secure Workspace Loading</p>
-            <h2>Bringing the quote engine, CRM, and AI services online.</h2>
-            <p>The app is loading its server-backed workspace so client data and admin settings stay protected.</p>
-          </section>
-        </main>
-      </div>
-    );
-  }
-
-  if (bootstrapError) {
-    return (
-      <div className="app-shell">
-        <main>
-          <section className="locked-state">
-            <p className="eyebrow">Connection Issue</p>
-            <h2>The secure API is not responding yet.</h2>
-            <p>{bootstrapError}</p>
-            <button className="primary-button" onClick={() => window.location.reload()}>
-              Retry App Load
-            </button>
-          </section>
-        </main>
-      </div>
-    );
-  }
-
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${window.location.hostname.includes("executive") ? "edition-executive" : "edition-standard"}`}>
       <header className="topbar">
         <div className="topbar__brand">
-          <img src="/davids-contracting-logo.png" alt="David's Contracting logo" className="topbar__logo" />
+          <span className="logo-frame logo-frame--header">
+            <img src="/davids-contracting-logo-2026.webp" alt="David's Contracting logo" className="topbar__logo" />
+          </span>
           <div>
             <p className="eyebrow">Built on purpose. Backed by pride.</p>
-            <h1>David&apos;s Contracting Suite</h1>
+            <h1>David&apos;s Contracting</h1>
           </div>
         </div>
 
@@ -274,17 +321,12 @@ export default function App() {
               key={item.key}
               className={activeView === item.key ? "nav-chip nav-chip--active" : "nav-chip"}
               onClick={() => {
-                if (item.key === "crm") {
-                  void openAdmin();
-                  return;
-                }
-
                 if (item.key === "quote") {
                   openQuote();
                   return;
                 }
 
-                setActiveView("landing");
+                setActiveView(item.key);
               }}
             >
               {item.label}
@@ -298,7 +340,7 @@ export default function App() {
           </a>
           {hasQuoteSession ? (
             <span className="topbar__session">
-              {hasAdminSession ? "Admin Session" : "Estimator Session"}
+              {hasAdminSession ? "Owner Session" : "Estimator Session"}
             </span>
           ) : null}
           {hasQuoteSession ? (
@@ -306,16 +348,17 @@ export default function App() {
               {authBusy ? "Signing Out..." : "Log Out"}
             </button>
           ) : (
-            <button className="ghost-button" onClick={() => openSecureAccess("staff", "quote")}>
-              Contractor Login
+            <button className="ghost-button topbar__login" onClick={() => openSecureAccess("staff", "quote")}>
+              Log In
             </button>
           )}
-          <button className="ghost-button" onClick={openQuote}>
+          <button className="ghost-button topbar__estimate" onClick={openQuote}>
             Start Estimate
           </button>
         </div>
       </header>
 
+      {bootstrapError ? <div className="notice-banner notice-banner--warning">Public site available. Secure login is temporarily unavailable.</div> : null}
       {notice ? <div className="notice-banner">{notice}</div> : null}
 
       <main>
@@ -323,9 +366,16 @@ export default function App() {
           <LandingPage
             repProfile={appState.settings.repProfile}
             onOpenQuote={openQuote}
-            onOpenAdmin={() => void openAdmin()}
+            onNavigate={setActiveView}
+            onLogin={() => openSecureAccess("staff", "quote")}
           />
         ) : null}
+
+        {activeView === "gallery" ? <GalleryPage /> : null}
+        {activeView === "podcast" ? <PodcastPage episodes={appState.podcastEpisodes} events={appState.podcastEvents} onNavigate={setActiveView} /> : null}
+        {activeView === "financing" ? <FinancingPage onOpenQuote={openQuote} /> : null}
+        {activeView === "careers" ? <CareersPage /> : null}
+        {activeView === "contact" ? <ContactPage repProfile={appState.settings.repProfile} /> : null}
 
         {activeView === "quote" ? (
           <QuoteBuilder
@@ -341,18 +391,18 @@ export default function App() {
           hasAdminSession ? (
             <AdminDashboard
               appState={appState}
+              onUpdateOperations={handleOperationsUpdate}
               onUpdateSettings={handleSettingsUpdate}
               onUpdateRecord={handleRecordUpdate}
               onRunIntegrationTest={handleIntegrationTest}
+              onLogout={handleLogout}
+              authBusy={authBusy}
             />
           ) : (
             <section className="locked-state">
-              <p className="eyebrow">Admin Login Required</p>
-              <h2>Owner access protects CRM, payroll, materials, and documentation.</h2>
-              <p>
-                Use the admin credentials stored on the secure server. The starter admin login email is{" "}
-                <strong>{adminEmailHint}</strong>.
-              </p>
+              <p className="eyebrow">Owner Login Required</p>
+              <h2>Owner access protects leads, applicants, projects, payments, and reports.</h2>
+              <p>Use the private Owner credentials configured on the secure server.</p>
               <button className="primary-button" onClick={() => openSecureAccess("admin", "crm")}>
                 Open Admin Login
               </button>
@@ -361,19 +411,30 @@ export default function App() {
         ) : null}
       </main>
 
+      {activeView !== "landing" && activeView !== "crm" ? (
+        <footer className="site-footer" aria-label="Site footer">
+          <div><strong>David&apos;s Contracting</strong><span>Built Right. Built to Last.</span></div>
+          <nav aria-label="Footer navigation">
+            <button onClick={() => setActiveView("landing")}>Home</button>
+            <button onClick={() => setActiveView("gallery")}>Gallery</button>
+            <button onClick={() => setActiveView("careers")}>Careers</button>
+            <button onClick={() => setActiveView("contact")}>Contact</button>
+          </nav>
+          {hasQuoteSession ? (
+            <button className="site-footer__login" onClick={() => void handleLogout()} disabled={authBusy}>Log Out</button>
+          ) : (
+            <button className="site-footer__login" onClick={() => openSecureAccess("staff", "quote")}>Team &amp; Owner Login</button>
+          )}
+        </footer>
+      ) : null}
+
       {showLogin ? (
         <div className="modal-scrim" role="presentation" onClick={() => setShowLogin(false)}>
-          <div className="modal-card" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+          <div ref={loginDialogRef} className="modal-card" role="dialog" aria-modal="true" aria-labelledby="secure-login-title" onClick={(event) => event.stopPropagation()}>
             <div className="modal-card__header">
               <div>
-                <p className="eyebrow">
-                  {loginMode === "admin" ? "Admin Secure Access" : "Contractor Secure Access"}
-                </p>
-                <h2>
-                  {loginMode === "admin"
-                    ? "Log in to the CRM dashboard"
-                    : "Unlock the estimator workspace"}
-                </h2>
+                <p className="eyebrow">Secure Workspace Access</p>
+                <h2 id="secure-login-title">Log in to your authorized dashboard</h2>
               </div>
               <button className="icon-button" onClick={() => setShowLogin(false)} aria-label="Close login">
                 &times;
@@ -388,21 +449,22 @@ export default function App() {
                   onChange={(event) => {
                     const nextMode = event.target.value as AuthRole;
                     setLoginMode(nextMode);
+                    setPostLoginView(nextMode === "admin" ? "crm" : "quote");
                     setLoginEmail(nextMode === "admin" ? adminEmailHint : staffEmailHint);
                     setLoginError("");
                   }}
                 >
+                  <option value="admin">Business Owner</option>
                   <option value="staff">Contractor / Estimator</option>
-                  <option value="admin">Admin Owner</option>
                 </select>
               </label>
               <label>
-                {loginMode === "admin" ? "Admin email" : "Contractor / estimator email"}
+                {loginMode === "admin" ? "Owner username" : "Contractor / estimator email"}
                 <input
-                  type="email"
+                  type={loginMode === "admin" ? "text" : "email"}
                   value={loginEmail}
                   onChange={(event) => setLoginEmail(event.target.value)}
-                  placeholder={loginMode === "admin" ? adminEmailHint : staffEmailHint}
+                  placeholder={loginMode === "admin" ? "Enter owner username" : "Enter contractor email"}
                   autoComplete="username"
                 />
               </label>
@@ -418,9 +480,10 @@ export default function App() {
               </label>
               <p className="helper-text">
                 {loginMode === "admin"
-                  ? "Admin access unlocks the CRM dashboard, settings, payroll view, and live integration testing."
+                  ? "Owner access unlocks applicants, customer leads, projects, payments, and company reports."
                   : "Contractor access unlocks the secure quote builder, AI scope tools, and quote email / save flows."}
               </p>
+              {loginSecurityFields}
               {loginError ? <p className="error-text">{loginError}</p> : null}
               <div className="modal-card__actions">
                 <button type="button" className="ghost-button" onClick={() => setShowLogin(false)} disabled={authBusy}>
@@ -434,6 +497,8 @@ export default function App() {
           </div>
         </div>
       ) : null}
+      <SiteAssistant navigate={(destination) => setActiveView(destination)} />
+      <CookieAccessibilityCenter />
     </div>
   );
 }

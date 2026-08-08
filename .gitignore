@@ -6,3 +6,5 @@ server-data
 .netlify
 *.tsbuildinfo
 *.log
+*_key.py
+install_shared_ai_keys.py

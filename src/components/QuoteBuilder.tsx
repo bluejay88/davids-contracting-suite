@@ -1,5 +1,6 @@
 import {
   Camera,
+  ChevronDown,
   CircleHelp,
   Download,
   Mail,
@@ -17,6 +18,7 @@ import {
 import { ChangeEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { aidPrograms, categoryMeta, serviceTasks, suppliers } from "../data/catalog";
 import { emailQuote } from "../lib/api";
+import { useFormSecurity } from "./FormSecurityChallenge";
 import { getAiAidPrograms, getAiMaterialPlan, getAiScopePlan, transcribeCapturedAudio } from "../lib/ai";
 import {
   analyzeSpeechInput,
@@ -31,7 +33,7 @@ import {
   validateClientForEmail,
   validateClientForSave,
 } from "../lib/estimates";
-import { buildQuotePdfBlob } from "../lib/pdf";
+import { buildExecutiveEstimateDossierPdfBlob, buildQuotePdfBlob } from "../lib/pdf";
 import {
   AiMaterialRecommendation,
   AiProgramRecommendation,
@@ -52,7 +54,7 @@ interface QuoteBuilderProps {
   settings: AppSettings;
   historicalJobs: HistoricalJob[];
   sessionRole: "public" | "staff" | "admin";
-  onSaveRecord: (record: CrmRecord, quote: QuoteResult) => Promise<void>;
+  onSaveRecord: (record: CrmRecord, quote: QuoteResult, security?: Record<string, unknown>) => Promise<void>;
   onOpenAdmin: () => void;
 }
 
@@ -72,6 +74,7 @@ interface BrowserSpeechCtor {
 }
 
 type AiBusyState = null | "scope" | "programs" | "materials" | "transcribe";
+type EstimateSectionId = "trades" | "helpers" | "client" | "tasks";
 
 const defaultClientIntake = (repName: string): ClientIntake => ({
   firstName: "",
@@ -125,10 +128,15 @@ const toTaskSuggestions = (selections: QuoteSelection[]): AiTaskSuggestion[] =>
     }));
 
 const providerLabel = (settings: AppSettings) => {
+  if (!settings.automationEnabled) return "Basic online estimator (automation paused)";
   if (settings.aiProvider === "openai-direct") {
-    return settings.hasOpenAiApiKey
-      ? `OpenAI direct (${settings.openAiModel})`
+    return settings.hasOpenAiApiKey || settings.hasAiGateway
+      ? `${settings.hasAiGateway ? "Netlify AI Gateway" : "OpenAI direct"} (${settings.openAiModel})`
       : "OpenAI direct configured without an API key";
+  }
+
+  if (settings.aiProvider === "anthropic-direct") {
+    return settings.hasAnthropicApiKey ? `Anthropic (${settings.anthropicModel})` : "Anthropic configured without an API key";
   }
 
   if (settings.aiProvider === "webhook") {
@@ -185,7 +193,9 @@ const quickStartBundles: Array<{
 ];
 
 export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveRecord, onOpenAdmin }: QuoteBuilderProps) {
+  const { securityPayload: estimateSecurityPayload, securityFields: estimateSecurityFields } = useFormSecurity();
   const [activeCategories, setActiveCategories] = useState<ServiceCategory[]>(["painting"]);
+  const [openTaskCategory, setOpenTaskCategory] = useState<ServiceCategory | null>("painting");
   const [clientIntake, setClientIntake] = useState<ClientIntake>(() => defaultClientIntake(settings.repProfile.repName));
   const [projectTitle, setProjectTitle] = useState("");
   const [projectSummary, setProjectSummary] = useState("");
@@ -204,6 +214,7 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
   const [liveMaterials, setLiveMaterials] = useState<AiMaterialRecommendation[]>([]);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [crmDraftId, setCrmDraftId] = useState<string | null>(null);
+  const [openMajorSection, setOpenMajorSection] = useState<EstimateSectionId | null>("trades");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -240,6 +251,12 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
     () => serviceTasks.filter((task) => activeCategories.includes(task.category)),
     [activeCategories],
   );
+
+  useEffect(() => {
+    if (openTaskCategory && !activeCategories.includes(openTaskCategory)) {
+      setOpenTaskCategory(activeCategories[0] ?? null);
+    }
+  }, [activeCategories, openTaskCategory]);
 
   const selections = useMemo(
     () =>
@@ -403,6 +420,8 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
   };
 
   const handleCategoryToggle = (category: ServiceCategory) => {
+    const isActive = activeCategories.includes(category);
+    if (!isActive) setOpenTaskCategory(category);
     setActiveCategories((current) =>
       current.includes(category) ? current.filter((item) => item !== category) : [...current, category],
     );
@@ -460,7 +479,7 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
     setActionMessage("");
 
     try {
-      await onSaveRecord(record, nextQuote);
+      await onSaveRecord(record, nextQuote, isInternalUser ? {} : estimateSecurityPayload);
       setCrmDraftId(record.id);
       setActionMessage(
         automatic
@@ -677,7 +696,7 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
   };
 
   const startAiRecording = async () => {
-    if (settings.aiProvider === "heuristic" || (!settings.hasOpenAiApiKey && !settings.hasAiWebhook)) {
+    if (!settings.automationEnabled || settings.aiProvider === "heuristic" || settings.aiProvider === "anthropic-direct" || (!settings.hasOpenAiApiKey && !settings.hasAiGateway && !settings.hasAiWebhook)) {
       setSpeechFeedback("Live AI transcription is not configured, so the app is falling back to browser speech capture.");
       handleSpeechCapture();
       return;
@@ -854,7 +873,20 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
     anchor.download = `${clientIntake.lastName || "client"}-${nextQuote.projectTitle.replace(/\s+/g, "-").toLowerCase()}.pdf`;
     anchor.click();
     URL.revokeObjectURL(url);
-    setActionMessage("Quote PDF downloaded.");
+    setActionMessage("Customer estimate PDF downloaded.");
+  };
+
+  const handleDownloadExecutiveDossier = async () => {
+    if (!isInternalUser || selectedTaskCount === 0) return;
+    const nextQuote = quote ?? buildQuote(projectTitle, projectSummary, selections, settings, clientIntake, quoteOptions);
+    const pdfBlob = await buildExecutiveEstimateDossierPdfBlob(nextQuote, clientIntake, settings);
+    const url = URL.createObjectURL(pdfBlob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${clientIntake.lastName || "client"}-${nextQuote.projectTitle.replace(/\s+/g, "-").toLowerCase()}-executive-dossier.pdf`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setActionMessage("Confidential executive estimate dossier downloaded.");
   };
 
   const handleShareOrEmail = async () => {
@@ -923,41 +955,42 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
   const selectedTaskCount = selections.filter((selection) => selection.quantity > 0).length;
 
   return (
-    <div className="workspace">
+    <div className="workspace" data-session-role={sessionRole}>
       <section className="workspace__hero">
         <div>
-          <p className="eyebrow">Estimator Workspace</p>
-          <h2>Build fast contractor quotes with low and high ranges.</h2>
+          <p className="eyebrow">Project planning estimate</p>
+          <h2>Turn your project ideas into a clear starting plan.</h2>
           <p>
-            Use categories, speech notes, uploaded photos, client intake details, and AI-assisted planning to assemble
-            a clean estimate. Logged-in contractors autosave live CRM drafts, while public visitors can still send a
-            self-serve lead request with consent and scheduling details.
+            Tell us what you want to improve, choose the services that fit your property, and receive a preliminary
+            planning range you can save, print, or submit for professional review.
           </p>
         </div>
         <div className="workspace__hero-actions">
-          <button className="ghost-button" onClick={onOpenAdmin}>
+          {isInternalUser ? <button className="ghost-button" onClick={onOpenAdmin}>
             <ShieldCheck size={18} />
-            {isInternalUser ? "Open Admin CRM" : "Contractor Login / Admin"}
-          </button>
+            Open Owner Workspace
+          </button> : null}
           <button className="primary-button" onClick={handleGenerateQuote}>
             <Sparkles size={18} />
-            Refresh Estimate
+            Update Planning Range
           </button>
         </div>
       </section>
 
       <div className="workspace__grid">
         <div className="workspace__main">
-          <section className="panel">
-            <div className="panel__header">
+          <section className={`panel estimate-major-section${openMajorSection === "trades" ? " is-open" : ""}`}>
+            <button type="button" className="estimate-major-section__trigger" aria-expanded={openMajorSection === "trades"} onClick={() => setOpenMajorSection(openMajorSection === "trades" ? null : "trades")}>
               <div>
-                <p className="eyebrow">1. Select Trades</p>
-                <h3>Choose the job types on this quote</h3>
+                <p className="eyebrow">1. Choose project areas</p>
+                <h3>What would you like us to help improve?</h3>
+                <span>Select one or more service areas, or begin with a popular project plan.</span>
               </div>
-              <span className="panel__badge">{selectedTaskCount} scoped tasks</span>
-            </div>
+              <span className="estimate-major-section__meta"><b>{selectedTaskCount} scoped</b><ChevronDown size={20} /></span>
+            </button>
 
-            <div className="chip-grid">
+            <div className="estimate-major-section__body" hidden={openMajorSection !== "trades"}>
+              <div className="chip-grid">
               {Object.entries(categoryMeta).map(([category, meta]) => (
                 <button
                   key={category}
@@ -974,26 +1007,30 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
               ))}
             </div>
 
-            <div className="bundle-grid">
+              <div className="bundle-grid">
               {quickStartBundles.map((bundle) => (
                 <button key={bundle.id} className="bundle-chip" onClick={() => applyBundle(bundle.id)}>
                   <strong>{bundle.title}</strong>
                   <span>{bundle.description}</span>
                 </button>
               ))}
+              </div>
             </div>
           </section>
 
-          <section className="panel">
-            <div className="panel__header">
+          <section className={`panel estimate-major-section${openMajorSection === "helpers" ? " is-open" : ""}`}>
+            <button type="button" className="estimate-major-section__trigger" aria-expanded={openMajorSection === "helpers"} onClick={() => setOpenMajorSection(openMajorSection === "helpers" ? null : "helpers")}>
               <div>
-                <p className="eyebrow">2. AI Intake Helpers</p>
-                <h3>Capture the scope by voice, recorded audio, and photos</h3>
+                <p className="eyebrow">2. Add project details</p>
+                <h3>Show or describe what you have in mind</h3>
+                <span>Optional voice notes and photos help organize your priorities before a site visit.</span>
               </div>
-              <span className="panel__badge">{providerLabel(settings)}</span>
-            </div>
+              <span className="estimate-major-section__meta"><b>{imageFiles.length || speechTranscript ? "Notes added" : "Optional"}</b><ChevronDown size={20} /></span>
+            </button>
 
-            <div className="assist-grid">
+            <div className="estimate-major-section__body" hidden={openMajorSection !== "helpers"}>
+              {isInternalUser ? <p className="estimate-major-section__provider">{providerLabel(settings)}</p> : null}
+              <div className="assist-grid">
               <article className="assist-card">
                 <div className="assist-card__title">
                   <Mic size={18} />
@@ -1107,7 +1144,7 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
               </article>
             </div>
 
-            <div className="assist-card assist-card--wide">
+              <div className="assist-card assist-card--wide">
               <div className="assist-card__title">
                 <WandSparkles size={18} />
                 <h4>AI quote copilot</h4>
@@ -1150,17 +1187,21 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                 </div>
               ) : null}
               {aiError ? <p className="error-text">{aiError}</p> : null}
+              </div>
             </div>
           </section>
 
-          <section className="panel">
-            <div className="panel__header">
+          <section className={`panel estimate-major-section${openMajorSection === "client" ? " is-open" : ""}`}>
+            <button type="button" className="estimate-major-section__trigger" aria-expanded={openMajorSection === "client"} onClick={() => setOpenMajorSection(openMajorSection === "client" ? null : "client")}>
               <div>
-                <p className="eyebrow">3. Client Intake + CRM Fields</p>
-                <h3>Capture homeowner details with quote-ready CRM data</h3>
+                <p className="eyebrow">3. Your project and contact details</p>
+                <h3>Help us understand your goals and how to reach you</h3>
+                <span>Your information is used only to prepare and follow up on your project request.</span>
               </div>
-            </div>
+              <span className="estimate-major-section__meta"><b>{clientIntake.firstName ? "In progress" : "Not started"}</b><ChevronDown size={20} /></span>
+            </button>
 
+            <div className="estimate-major-section__body" hidden={openMajorSection !== "client"}>
             {!isInternalUser ? (
               <p className="helper-text">
                 Self-serve estimates can be saved as a lead request for David&apos;s Contracting. Add contact details
@@ -1410,19 +1451,40 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                   </p>
                 </>
               ) : null}
+              </div>
             </div>
           </section>
 
-          <section className="panel">
-            <div className="panel__header">
+          <section className={`panel estimate-major-section${openMajorSection === "tasks" ? " is-open" : ""}`}>
+            <button type="button" className="estimate-major-section__trigger" aria-expanded={openMajorSection === "tasks"} onClick={() => setOpenMajorSection(openMajorSection === "tasks" ? null : "tasks")}>
               <div>
-                <p className="eyebrow">4. Task Pricing</p>
-                <h3>Adjust quantities and scope assumptions</h3>
+                <p className="eyebrow">4. Choose services and quantities</p>
+                <h3>Build the work plan that fits your property</h3>
+                <span>Open each service area to select work, measurements, condition, and finish preferences.</span>
               </div>
-            </div>
+              <span className="estimate-major-section__meta"><b>{selectedTaskCount} selected</b><ChevronDown size={20} /></span>
+            </button>
 
-            <div className="task-list">
-              {availableTasks.map((task) => {
+            <div className="estimate-major-section__body" hidden={openMajorSection !== "tasks"}>
+              <div className="task-accordions">
+              {activeCategories.map((category) => {
+                const categoryTasks = availableTasks.filter((task) => task.category === category);
+                const selectedCount = categoryTasks.filter((task) => (selectionMap[task.id]?.quantity ?? 0) > 0).length;
+                const isOpen = openTaskCategory === category;
+                return <section key={category} className={`estimator-accordion${isOpen ? " is-open" : ""}`}>
+                  <button
+                    type="button"
+                    className="estimator-accordion__trigger"
+                    aria-expanded={isOpen}
+                    aria-controls={`estimator-drawer-${category}`}
+                    onClick={() => setOpenTaskCategory(isOpen ? null : category)}
+                  >
+                    <span>{categoryMeta[category].label}</span>
+                    <small>{selectedCount} selected · {categoryTasks.length} services</small>
+                  </button>
+                  <div id={`estimator-drawer-${category}`} className="estimator-accordion__drawer" hidden={!isOpen}>
+                    <div className="task-list">
+              {categoryTasks.map((task) => {
                 const selection = selectionMap[task.id] ?? newSelection(task.id);
                 return (
                   <article key={task.id} className="task-card">
@@ -1502,6 +1564,11 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                   </article>
                 );
               })}
+                    </div>
+                  </div>
+                </section>;
+              })}
+              </div>
             </div>
           </section>
         </div>
@@ -1510,12 +1577,12 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
           <section className="panel panel--sticky">
             <div className="panel__header">
               <div>
-                <p className="eyebrow">5. Estimate Output</p>
-                <h3>Low / High quote range</h3>
+                <p className="eyebrow">Your project summary</p>
+                <h3>Preliminary planning range</h3>
               </div>
             </div>
 
-            <div className="form-grid">
+            {isInternalUser ? <div className="estimate-internal-options" aria-label="Internal pricing controls"><div className="form-grid">
               <label>
                 Crew Size
                 <input
@@ -1628,7 +1695,7 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                   </label>
                 ) : null}
               </div>
-            ) : null}
+            ) : null}</div> : <p className="customer-estimate-note"><ShieldCheck size={18} /> Your planning range includes the contractor&apos;s standard business allowances. Internal pricing controls remain private.</p>}
 
             <label>
               Project Title
@@ -1674,16 +1741,7 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                     <dt>Travel Fee</dt>
                     <dd>{formatCurrency(quote.totals.travelFee)}</dd>
                   </div>
-                  <div>
-                    <dt>Markup + Tax</dt>
-                    <dd>
-                      {formatCurrency(quote.totals.markupLow + quote.totals.taxLow)} - {formatCurrency(quote.totals.markupHigh + quote.totals.taxHigh)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Contingency</dt>
-                    <dd>{formatCurrency(quote.totals.contingencyLow)} - {formatCurrency(quote.totals.contingencyHigh)}</dd>
-                  </div>
+                  {isInternalUser ? <><div><dt>Markup + Tax</dt><dd>{formatCurrency(quote.totals.markupLow + quote.totals.taxLow)} - {formatCurrency(quote.totals.markupHigh + quote.totals.taxHigh)}</dd></div><div><dt>Contingency</dt><dd>{formatCurrency(quote.totals.contingencyLow)} - {formatCurrency(quote.totals.contingencyHigh)}</dd></div></> : null}
                   <div>
                     <dt>Timing</dt>
                     <dd>{quote.suggestedCrewSize} crew / about {quote.estimatedDays} day(s)</dd>
@@ -1712,7 +1770,7 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                     ))}
                   </ul>
                 </div>
-                {quote.healthChecks.length ? (
+                {isInternalUser && quote.healthChecks.length ? (
                   <div className="stack-block">
                     <div className="stack-block__title">
                       <CircleHelp size={16} />
@@ -1728,6 +1786,12 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                     </ul>
                   </div>
                 ) : null}
+                {!isInternalUser ? (
+                  <div className="estimate-request-security">
+                    <p>Verify your request before sending it to David&apos;s Contracting.</p>
+                    {estimateSecurityFields}
+                  </div>
+                ) : null}
                 <div className="estimate-card__actions">
                   <button className="primary-button" onClick={handleSaveToCrm} disabled={saving}>
                     <Save size={16} />
@@ -1735,8 +1799,9 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                   </button>
                   <button className="ghost-button" onClick={handleDownloadPdf}>
                     <Download size={16} />
-                    PDF
+                    Customer PDF
                   </button>
+                  {isInternalUser ? <button className="ghost-button" onClick={handleDownloadExecutiveDossier}><ShieldCheck size={16} /> Executive Dossier</button> : null}
                   <button className="ghost-button" onClick={handleShareOrEmail}>
                     <Send size={16} />
                     Share / Email

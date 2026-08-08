@@ -192,13 +192,139 @@ const reminders = [
   },
 ];
 
+const applicants = [
+  {
+    id: "app-001", firstName: "Alicia", lastName: "Monroe", email: "alicia.monroe@example.com",
+    phone: "217-555-0147", city: "Decatur", state: "IL", source: "Referral",
+    desiredRoles: ["Painter / Flooring Technician"], skills: ["Interior painting", "LVP installation", "Jobsite cleanup"],
+    yearsExperience: 4, certifications: ["OSHA 10"], availabilityDate: "2026-05-18",
+    employmentPreference: ["Full-time"], stage: "Screening", assignedTo: "David Carter",
+    resumeFileName: "alicia-monroe-resume.pdf", resumeText: "Four years of residential painting and flooring installation experience.",
+    notes: "Referred by a completed-job client.", consentToAiReview: true,
+    createdAt: "2026-05-02T15:20:00.000Z", updatedAt: "2026-05-04T14:10:00.000Z",
+  },
+  {
+    id: "app-002", firstName: "Terrance", lastName: "Bishop", email: "terrance.bishop@example.com",
+    phone: "217-555-0192", city: "Macon", state: "IL", source: "Website",
+    desiredRoles: ["Crew Lead"], skills: ["Roof repair", "Crew supervision", "Material takeoffs"],
+    yearsExperience: 7, certifications: ["OSHA 30", "First Aid / CPR"], availabilityDate: "2026-06-01",
+    employmentPreference: ["Full-time", "Contract"], stage: "Interview", assignedTo: "David Carter",
+    resumeFileName: "terrance-bishop-resume.pdf", resumeText: "Seven years leading small residential exterior crews and coordinating material orders.",
+    notes: "Phone interview completed; verify references.", consentToAiReview: true,
+    createdAt: "2026-04-28T17:45:00.000Z", updatedAt: "2026-05-03T19:00:00.000Z",
+  },
+];
+
+const jobOpenings = [
+  {
+    id: "opening-001", title: "Painter / Flooring Technician", department: "Field Operations",
+    employmentType: "Full-time", location: "Decatur, IL", status: "Open", openings: 2,
+    requiredSkills: ["Residential painting", "Surface preparation"], preferredSkills: ["LVP installation", "Drywall patching"],
+    minimumYearsExperience: 2, requiredCertifications: [], payRangeLow: 20, payRangeHigh: 28,
+    description: "Complete occupied-home painting, flooring, and punch-list work with clean documentation.",
+    hiringManager: "David Carter", targetStartDate: "2026-06-01",
+    createdAt: "2026-04-25T13:00:00.000Z", updatedAt: "2026-05-01T13:00:00.000Z",
+  },
+  {
+    id: "opening-002", title: "Crew Lead", department: "Field Operations", employmentType: "Full-time",
+    location: "Decatur, IL", status: "Open", openings: 1, requiredSkills: ["Crew supervision", "Jobsite safety", "Material planning"],
+    preferredSkills: ["Roof repair", "Customer communication"], minimumYearsExperience: 5,
+    requiredCertifications: ["OSHA 10"], payRangeLow: 28, payRangeHigh: 36,
+    description: "Lead residential project delivery, daily safety, quality checks, and production reporting.",
+    hiringManager: "David Carter", targetStartDate: "2026-06-15",
+    createdAt: "2026-04-25T13:15:00.000Z", updatedAt: "2026-05-01T13:15:00.000Z",
+  },
+];
+
+const employees = [
+  {
+    id: "emp-001", firstName: "David", lastName: "Carter", title: "Owner / Project Manager",
+    employmentType: "Full-time", status: "Active", email: "student.jayla1985@gmail.com", phone: "217-542-4566",
+    hireDate: "2020-01-01", hourlyRate: 75, payFrequency: "Weekly", paymentMethod: "Cash", paymentHandle: "", skills: ["Estimating", "Project management", "Roof repair"],
+    certifications: [{ name: "OSHA 30", expiresAt: "2028-03-31" }], availability: "Partially Allocated",
+    weeklyCapacityHours: 40, assignedProjectIds: ["project-001", "project-002"],
+    emergencyContactName: "", emergencyContactPhone: "", notes: "Owner and executive project sponsor.",
+  },
+  {
+    id: "emp-002", firstName: "Marcus", lastName: "Lewis", title: "Crew Lead", employmentType: "Full-time",
+    status: "Active", email: "marcus.lewis@example.com", phone: "217-555-0118", hireDate: "2023-06-12",
+    hourlyRate: 40, payFrequency: "Weekly", paymentMethod: "Cash", paymentHandle: "", skills: ["Flooring", "Carpentry", "Crew supervision"],
+    certifications: [{ name: "OSHA 10", expiresAt: "2027-09-30" }], availability: "Fully Allocated",
+    weeklyCapacityHours: 40, assignedProjectIds: ["project-001"], emergencyContactName: "Nina Lewis",
+    emergencyContactPhone: "217-555-0119", notes: "Primary flooring and interior crew lead.",
+  },
+];
+
+const materials = [
+  {
+    id: "mat-001", sku: "LVP-OAK-20MIL", name: "Oak-look 20 mil LVP", category: "Flooring", unit: "carton",
+    quantityOnHand: 28, quantityReserved: 22, reorderPoint: 10, unitCost: 58.5, supplierName: "Menards",
+    supplierUrl: "https://www.menards.com", leadTimeDays: 2, location: "Shop rack A2",
+    projectIds: ["project-001"], status: "Low Stock", lastUpdatedAt: "2026-05-04T16:00:00.000Z",
+  },
+  {
+    id: "mat-002", sku: "SHINGLE-ARCH-BLK", name: "Architectural shingles - black", category: "Roofing", unit: "bundle",
+    quantityOnHand: 12, quantityReserved: 6, reorderPoint: 6, unitCost: 39.75, supplierName: "Lowe's",
+    supplierUrl: "https://www.lowes.com", leadTimeDays: 1, location: "Covered storage B1",
+    projectIds: ["project-002"], status: "In Stock", lastUpdatedAt: "2026-05-04T16:15:00.000Z",
+  },
+];
+
+const projects = [
+  {
+    id: "project-001", crmRecordId: "crm-002", name: "Reed Kitchen Floor Stabilization", clientName: "Harold Reed",
+    status: "Active", health: "Amber", priority: "High", projectManager: "David Carter",
+    employeeIds: ["emp-001", "emp-002"], startDate: "2026-05-12", targetEndDate: "2026-05-16",
+    budget: 6000, committedCost: 3180, actualCost: 1800, percentComplete: 35,
+    summary: "Repair soft subfloor, install LVP, and complete faucet replacement before the family event.",
+    milestones: [
+      { id: "ms-001", name: "Material pickup", dueDate: "2026-05-11", status: "In Progress", percentComplete: 70 },
+      { id: "ms-002", name: "Flooring closeout", dueDate: "2026-05-16", status: "Not Started", percentComplete: 0 },
+    ],
+    risks: [{ id: "risk-001", title: "Hidden subfloor damage", impact: "High", probability: "Medium", mitigation: "Hold repair allowance and inspect after demolition.", owner: "Marcus Lewis", status: "Monitoring" }],
+    materialIds: ["mat-001"], updatedAt: "2026-05-04T18:00:00.000Z",
+  },
+  {
+    id: "project-002", crmRecordId: "crm-001", name: "Brooks Emergency Roof Mitigation", clientName: "Marlena Brooks",
+    status: "Planning", health: "Amber", priority: "Critical", projectManager: "David Carter", employeeIds: ["emp-001"],
+    startDate: "2026-05-08", targetEndDate: "2026-05-09", budget: 3200, committedCost: 740, actualCost: 0,
+    percentComplete: 10, summary: "Stop active leak, document damage, and prepare follow-on ceiling repair scope.",
+    milestones: [{ id: "ms-003", name: "Leak mitigation", dueDate: "2026-05-08", status: "Not Started", percentComplete: 0 }],
+    risks: [{ id: "risk-002", title: "Rain forecast", impact: "Critical", probability: "High", mitigation: "Pre-stage tarp and prioritize first dry work window.", owner: "David Carter", status: "Open" }],
+    materialIds: ["mat-002"], updatedAt: "2026-05-04T18:30:00.000Z",
+  },
+];
+
+const aiReviews = [
+  {
+    id: "ai-review-001", subjectType: "Applicant", subjectId: "app-001", reviewType: "Job Readiness",
+    status: "Needs Human Review", provider: "heuristic", model: "skills-rubric-v1", score: 84,
+    summary: "Strong match for the painter/flooring opening based on relevant field experience and availability.",
+    strengths: ["Four years of directly relevant experience", "OSHA 10 credential", "Flooring and painting overlap"],
+    gaps: ["No documented drywall finishing depth"], recommendations: ["Complete reference check", "Use a paid practical skills assessment"],
+    evidence: ["Applicant-provided resume text", "Applicant skills and certifications", "opening-001 requirements"],
+    confidence: 0.82, humanDecision: "Pending", reviewedBy: "",
+    createdAt: "2026-05-04T14:15:00.000Z", completedAt: "2026-05-04T14:15:02.000Z",
+  },
+  {
+    id: "ai-review-002", subjectType: "Project", subjectId: "project-002", reviewType: "Project Health",
+    status: "Completed", provider: "heuristic", model: "project-health-v1", score: 61,
+    summary: "Schedule is exposed to weather and staffing constraints; pre-staging mitigation materials is recommended.",
+    strengths: ["Emergency scope is clearly bounded"], gaps: ["Only one employee assigned", "Weather exposure"],
+    recommendations: ["Assign backup technician", "Confirm tarp and shingle availability"],
+    evidence: ["project-002 risks", "mat-002 stock record"], confidence: 0.76,
+    humanDecision: "Accepted", reviewedBy: "David Carter",
+    createdAt: "2026-05-04T18:35:00.000Z", completedAt: "2026-05-04T18:35:01.000Z",
+  },
+];
+
 const seedAppState = {
   settings: {
     repProfile: {
       repName: "David Carter",
       companyName: "David's Contracting",
       phone: "217-542-4566",
-      email: "student.jayla1985@gmail.com",
+      email: "Davidscontracting49@gmail.com",
       title: "Owner / Estimator",
     },
     adminEmail: "owner@davidscontracting.local",
@@ -206,13 +332,16 @@ const seedAppState = {
     staffEmail: "estimator@davidscontracting.local",
     staffPassword: "",
     serviceAreaZip: "62526",
-    aiProvider: "heuristic",
+      aiProvider: "heuristic",
+      automationEnabled: false,
     googleAppsScriptUrl: "",
     aiWebhookUrl: "",
     emailWebhookUrl: "",
-    openAiApiKey: "",
-    openAiModel: "gpt-5.4-mini",
-    openAiSearchModel: "gpt-4o-mini-search-preview",
+      openAiApiKey: "",
+      anthropicApiKey: "",
+      openAiModel: "gpt-4o-mini",
+      anthropicModel: "claude-sonnet-4-5-20250929",
+      openAiSearchModel: "gpt-4o-mini",
     openAiTranscriptionModel: "gpt-4o-mini-transcribe",
     lowMarkupPct: 0.14,
     highMarkupPct: 0.22,
@@ -243,6 +372,25 @@ const seedAppState = {
   crmRecords,
   reminders,
   historicalJobs,
+  applicants,
+  jobOpenings,
+  projects,
+  employees,
+  materials,
+  aiReviews,
+  contactLeads: [],
+  financingInquiries: [],
+  analyticsEvents: [],
+  galleryProjects: [
+    { id:"gallery-demo-paint", title:"Professional Interior Painting", slug:"professional-interior-painting", city:"Decatur", state:"IL", projectType:"Painting & Finishes", purpose:"General portfolio", propertyLabel:"Demo project inspiration", address:"", summary:"Demo gallery imagery illustrating organized preparation, safe work practices, and professional interior finishing. Replace with approved David's Contracting project photography as it becomes available.", completedAt:"", coverImageUrl:"https://images.pexels.com/photos/36153946/pexels-photo-36153946.jpeg?auto=compress&cs=tinysrgb&w=1600", media:[{id:"media-paint",type:"image",url:"https://images.pexels.com/photos/36153946/pexels-photo-36153946.jpeg?auto=compress&cs=tinysrgb&w=2000",thumbnailUrl:"https://images.pexels.com/photos/36153946/pexels-photo-36153946.jpeg?auto=compress&cs=tinysrgb&w=800",alt:"Professional workers painting an interior wall",caption:"Demo image representing professional painting services.",attribution:"Photo by DΛVΞ GΛRCIΛ on Pexels · Demo imagery"}],published:true,displayOrder:1,createdAt:"2026-08-02T00:00:00.000Z",updatedAt:"2026-08-02T00:00:00.000Z"},
+    { id:"gallery-demo-kitchen", title:"Kitchen Renovation Planning", slug:"kitchen-renovation-planning", city:"Decatur", state:"IL", projectType:"Remodeling & Renovation", purpose:"General portfolio", propertyLabel:"Demo project inspiration", address:"", summary:"Demo imagery showing a clean renovation environment and the type of thoughtful planning used for kitchen and interior improvement scopes.", completedAt:"", coverImageUrl:"https://images.pexels.com/photos/36035073/pexels-photo-36035073.jpeg?auto=compress&cs=tinysrgb&w=1600", media:[{id:"media-kitchen",type:"image",url:"https://images.pexels.com/photos/36035073/pexels-photo-36035073.jpeg?auto=compress&cs=tinysrgb&w=2000",thumbnailUrl:"https://images.pexels.com/photos/36035073/pexels-photo-36035073.jpeg?auto=compress&cs=tinysrgb&w=800",alt:"Modern kitchen undergoing renovation with tools and ladder",caption:"Demo image representing renovation planning.",attribution:"Photo by Valentin Ivantsov on Pexels · Demo imagery"}],published:true,displayOrder:2,createdAt:"2026-08-02T00:00:00.000Z",updatedAt:"2026-08-02T00:00:00.000Z"},
+    { id:"gallery-demo-exterior", title:"Exterior Renovation & Repair", slug:"exterior-renovation-repair", city:"Decatur", state:"IL", projectType:"Repairs & Restoration", purpose:"General portfolio", propertyLabel:"Demo project inspiration", address:"", summary:"Demo imagery representing structured exterior improvement, repair, and restoration work. Actual client projects can be uploaded and published by the owner.", completedAt:"", coverImageUrl:"https://images.pexels.com/photos/4567376/pexels-photo-4567376.jpeg?auto=compress&cs=tinysrgb&w=1600", media:[{id:"media-exterior",type:"image",url:"https://images.pexels.com/photos/4567376/pexels-photo-4567376.jpeg?auto=compress&cs=tinysrgb&w=2000",thumbnailUrl:"https://images.pexels.com/photos/4567376/pexels-photo-4567376.jpeg?auto=compress&cs=tinysrgb&w=800",alt:"Modern house exterior under renovation with scaffolding",caption:"Demo image representing exterior renovation services.",attribution:"Photo by Nothing Ahead on Pexels · Demo imagery"}],published:true,displayOrder:3,createdAt:"2026-08-02T00:00:00.000Z",updatedAt:"2026-08-02T00:00:00.000Z"}
+    ,{ id:"gallery-training-deconstruction", title:"Apprentices: Deconstruction (Union St)", slug:"apprentices-deconstruction-union-st", city:"Decatur", state:"IL", projectType:"Apprenticeship & Field Training", purpose:"General portfolio", propertyLabel:"Union Street field training", address:"", summary:"A field view of apprentices building practical deconstruction experience while preparing an existing space for its next phase of work.", completedAt:"2023-09-11", coverImageUrl:"/gallery/thumbnails/apprentices-deconstruction-union-st.jpg", media:[{id:"media-training-deconstruction",type:"video",url:"/gallery/videos/apprentices-deconstruction-union-st.mp4",thumbnailUrl:"/gallery/thumbnails/apprentices-deconstruction-union-st.jpg",alt:"Apprentices completing supervised deconstruction work at the Union Street project",caption:"Apprentices: Deconstruction (Union St)",attribution:"David's Contracting project footage"}],published:true,displayOrder:4,createdAt:"2026-08-02T00:00:00.000Z",updatedAt:"2026-08-02T00:00:00.000Z"}
+    ,{ id:"gallery-safety-lead-testing", title:"Safety: Lead Based Paint Testing Before Rehab", slug:"safety-lead-based-paint-testing-before-rehab", city:"Decatur", state:"IL", projectType:"Safety & Pre-Rehabilitation", purpose:"General portfolio", propertyLabel:"Pre-rehabilitation safety process", address:"", summary:"A behind-the-scenes look at the lead-based paint testing process used before rehabilitation work begins, supporting informed planning and safer jobsite decisions.", completedAt:"2023-11-16", coverImageUrl:"/gallery/thumbnails/safety-lead-paint-testing.jpg", media:[{id:"media-safety-lead-testing",type:"video",url:"/gallery/videos/safety-lead-paint-testing.mp4",thumbnailUrl:"/gallery/thumbnails/safety-lead-paint-testing.jpg",alt:"Lead-based paint testing being completed before rehabilitation work",caption:"Safety: Lead Based Paint Testing Before Rehab",attribution:"David's Contracting project footage"}],published:true,displayOrder:5,createdAt:"2026-08-02T00:00:00.000Z",updatedAt:"2026-08-02T00:00:00.000Z"}
+    ,{ id:"gallery-training-ceiling-panels", title:"Apprentice: OJT Ceiling Panel Installation", slug:"apprentice-ojt-ceiling-panel-installation", city:"Decatur", state:"IL", projectType:"Apprenticeship & Field Training", purpose:"General portfolio", propertyLabel:"On-the-job installation training", address:"", summary:"On-the-job training footage highlighting hands-on ceiling panel installation and the practical skill development behind quality contracting work.", completedAt:"2023-12-06", coverImageUrl:"/gallery/thumbnails/apprentice-ojt-ceiling-panel-installation.jpg", media:[{id:"media-training-ceiling-panels",type:"video",url:"/gallery/videos/apprentice-ojt-ceiling-panel-installation.mp4",thumbnailUrl:"/gallery/thumbnails/apprentice-ojt-ceiling-panel-installation.jpg",alt:"Apprentice completing supervised ceiling panel installation training",caption:"Apprentice: OJT Ceiling Panel Installation",attribution:"David's Contracting project footage"}],published:true,displayOrder:6,createdAt:"2026-08-02T00:00:00.000Z",updatedAt:"2026-08-02T00:00:00.000Z"}
+  ],
+  podcastEpisodes: [],
+  podcastEvents: [],
 };
 
 export const starterAdminPassword = "BuiltOnPurpose30!";

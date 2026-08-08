@@ -1,6 +1,8 @@
-const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-const OPENAI_TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions";
-const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+const OPENAI_RESPONSES_URL = `${OPENAI_BASE_URL}/responses`;
+const OPENAI_TRANSCRIPTIONS_URL = `${OPENAI_BASE_URL}/audio/transcriptions`;
+const OPENAI_CHAT_COMPLETIONS_URL = `${OPENAI_BASE_URL}/chat/completions`;
+const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 
 const integrationResult = (key, status, message, detail) => ({
   key,
@@ -33,20 +35,52 @@ const extractResponsesText = (response) => {
 };
 
 const openAiHeaders = (apiKey) => ({
-  Authorization: `Bearer ${apiKey}`,
+  ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
   "Content-Type": "application/json",
 });
 
 const canUseOpenAiDirect = (settings, secrets) =>
-  settings.aiProvider === "openai-direct" && Boolean(secrets.openAiApiKey?.trim());
+  settings.automationEnabled === true && settings.aiProvider === "openai-direct" && Boolean(secrets.openAiApiKey?.trim() || process.env.OPENAI_BASE_URL?.trim());
 
 const canUseWebhook = (settings) =>
-  settings.aiProvider === "webhook" && Boolean(settings.aiWebhookUrl?.trim());
+  settings.automationEnabled === true && settings.aiProvider === "webhook" && Boolean(settings.aiWebhookUrl?.trim());
+
+const getAnthropicKey = (secrets) => secrets.anthropicApiKey?.trim() || process.env.ANTHROPIC_API_KEY?.trim() || "";
+const canUseAnthropic = (settings, secrets) =>
+  settings.automationEnabled === true && settings.aiProvider === "anthropic-direct" && Boolean(getAnthropicKey(secrets));
+
+const callAnthropicJson = async (settings, secrets, prompt, images = []) => {
+  const content = [{ type: "text", text: `${prompt}\nReturn only valid JSON with no markdown fences.` }];
+  for (const imageUrl of images.slice(0, 3)) {
+    const match = /^data:([^;,]+);base64,(.+)$/s.exec(imageUrl);
+    if (match) content.push({ type: "image", source: { type: "base64", media_type: match[1], data: match[2] } });
+  }
+  const response = await fetch(ANTHROPIC_MESSAGES_URL, {
+    method: "POST",
+    headers: { "x-api-key": getAnthropicKey(secrets), "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model: settings.anthropicModel, max_tokens: 4096, messages: [{ role: "user", content }] }),
+  });
+  if (!response.ok) throw new Error(`Anthropic request failed with status ${response.status}.`);
+  const payload = await response.json();
+  const text = payload.content?.filter((item) => item.type === "text").map((item) => item.text || "").join("\n").trim();
+  if (!text) throw new Error("Anthropic returned no text payload.");
+  return parseJsonResponse(text);
+};
+
+const pingAnthropic = async (settings, secrets) => {
+  const response = await fetch(ANTHROPIC_MESSAGES_URL, {
+    method: "POST",
+    headers: { "x-api-key": getAnthropicKey(secrets), "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model: settings.anthropicModel, max_tokens: 16, messages: [{ role: "user", content: "Reply only OK." }] }),
+  });
+  if (!response.ok) throw new Error(`Anthropic health check failed with status ${response.status}.`);
+  return "Anthropic health check responded successfully.";
+};
 
 const callOpenAiResponsesJson = async (settings, secrets, prompt, images, schemaName, schema) => {
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: "POST",
-    headers: openAiHeaders(secrets.openAiApiKey.trim()),
+    headers: openAiHeaders(secrets.openAiApiKey?.trim()),
     body: JSON.stringify({
       model: settings.openAiModel,
       input: [
@@ -88,7 +122,7 @@ const callOpenAiResponsesJson = async (settings, secrets, prompt, images, schema
 const callOpenAiSearchJson = async (settings, secrets, prompt) => {
   const response = await fetch(OPENAI_CHAT_COMPLETIONS_URL, {
     method: "POST",
-    headers: openAiHeaders(secrets.openAiApiKey.trim()),
+    headers: openAiHeaders(secrets.openAiApiKey?.trim()),
     body: JSON.stringify({
       model: settings.openAiSearchModel,
       messages: [
@@ -145,7 +179,7 @@ const callWebhook = async (settings, action, payload) => {
 const pingOpenAi = async (settings, secrets) => {
   const response = await fetch(OPENAI_RESPONSES_URL, {
     method: "POST",
-    headers: openAiHeaders(secrets.openAiApiKey.trim()),
+    headers: openAiHeaders(secrets.openAiApiKey?.trim()),
     body: JSON.stringify({
       model: settings.openAiModel,
       input: "Reply with OK if the David's Contracting AI health check is working.",
@@ -181,6 +215,7 @@ export const resolveScopePlan = async (settings, secrets, payload) => {
   if (canUseWebhook(settings)) {
     return callWebhook(settings, "scope-plan", payload.webhookPayload);
   }
+  if (canUseAnthropic(settings, secrets)) return callAnthropicJson(settings, secrets, payload.prompt, payload.imageDataUrls ?? []);
 
   if (!canUseOpenAiDirect(settings, secrets)) {
     throw new Error("AI scope plan is not configured on the server.");
@@ -200,6 +235,7 @@ export const resolveAidPrograms = async (settings, secrets, payload) => {
   if (canUseWebhook(settings)) {
     return callWebhook(settings, "aid-programs", payload.webhookPayload);
   }
+  if (canUseAnthropic(settings, secrets)) return callAnthropicJson(settings, secrets, payload.prompt);
 
   if (!canUseOpenAiDirect(settings, secrets)) {
     throw new Error("AI assistance research is not configured on the server.");
@@ -212,6 +248,7 @@ export const resolveMaterialPlan = async (settings, secrets, payload) => {
   if (canUseWebhook(settings)) {
     return callWebhook(settings, "material-plan", payload.webhookPayload);
   }
+  if (canUseAnthropic(settings, secrets)) return callAnthropicJson(settings, secrets, payload.prompt);
 
   if (!canUseOpenAiDirect(settings, secrets)) {
     throw new Error("AI material research is not configured on the server.");
@@ -224,6 +261,7 @@ export const resolveAudioTranscription = async (settings, secrets, payload) => {
   if (canUseWebhook(settings)) {
     return callWebhook(settings, "transcribe-audio", payload);
   }
+  if (settings.aiProvider === "anthropic-direct") throw new Error("Anthropic does not provide audio transcription in this workflow. Use browser speech capture or configure OpenAI/webhook transcription.");
 
   if (!canUseOpenAiDirect(settings, secrets)) {
     throw new Error("AI audio transcription is not configured on the server.");
@@ -241,9 +279,7 @@ export const resolveAudioTranscription = async (settings, secrets, payload) => {
 
   const response = await fetch(OPENAI_TRANSCRIPTIONS_URL, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${secrets.openAiApiKey.trim()}`,
-    },
+    headers: secrets.openAiApiKey?.trim() ? { Authorization: `Bearer ${secrets.openAiApiKey.trim()}` } : {},
     body: formData,
   });
 
@@ -269,7 +305,7 @@ export const testAiProvider = async (settings, secrets) => {
   }
 
   if (settings.aiProvider === "openai-direct") {
-    if (!secrets.openAiApiKey?.trim()) {
+    if (!secrets.openAiApiKey?.trim() && !process.env.OPENAI_BASE_URL?.trim()) {
       return integrationResult(
         "ai",
         "failed",
@@ -282,7 +318,7 @@ export const testAiProvider = async (settings, secrets) => {
       return integrationResult(
         "ai",
         "success",
-        `OpenAI direct responded successfully using ${settings.openAiModel}.`,
+        `${process.env.OPENAI_BASE_URL ? "Netlify AI Gateway" : "OpenAI direct"} responded successfully using ${settings.openAiModel}.`,
         detail,
       );
     } catch (error) {
@@ -291,6 +327,16 @@ export const testAiProvider = async (settings, secrets) => {
         "failed",
         error instanceof Error ? error.message : "OpenAI direct health check failed.",
       );
+    }
+  }
+
+  if (settings.aiProvider === "anthropic-direct") {
+    if (!getAnthropicKey(secrets)) return integrationResult("ai", "failed", "Anthropic direct mode is selected, but no server-side API key is stored yet.");
+    try {
+      const detail = await pingAnthropic(settings, secrets);
+      return integrationResult("ai", "success", `Anthropic responded successfully using ${settings.anthropicModel}.`, detail);
+    } catch (error) {
+      return integrationResult("ai", "failed", error instanceof Error ? error.message : "Anthropic health check failed.");
     }
   }
 

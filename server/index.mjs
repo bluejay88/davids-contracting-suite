@@ -10,14 +10,18 @@ import {
   buildQuoteState,
   readPersistedState,
   saveQuoteRecord,
+  savePublicIntake,
+  storeApplicantResume,
   updateAppSettings,
   updateCrmRecord,
+  updateOperationsState,
   verifyAdminPassword,
   verifyStaffPassword,
 } from "./state.mjs";
 import {
   pushRecordToGoogleSheets,
   sendConsultationConfirmation,
+  sendCandidateNotification,
   sendQuoteEmail,
   testEmailWebhook,
   testGoogleSheetsConnection,
@@ -42,6 +46,13 @@ const sessionTtlMs = 1000 * 60 * 60 * 12;
 const loginWindowMs = 1000 * 60 * 15;
 const loginLockoutMs = 1000 * 60 * 15;
 const maxFailedLogins = 5;
+const maxJsonBodyBytes = 16 * 1024 * 1024;
+const securityHeaders = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), geolocation=(), payment=(), usb=()",
+};
 
 const mimeTypes = {
   ".css": "text/css; charset=utf-8",
@@ -79,6 +90,7 @@ const sendJson = (response, statusCode, payload, headers = {}) => {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
+    ...securityHeaders,
     ...headers,
   });
   response.end(JSON.stringify(payload));
@@ -91,8 +103,8 @@ const readJsonBody = async (request) =>
     request.setEncoding("utf8");
     request.on("data", (chunk) => {
       raw += chunk;
-      if (raw.length > 20 * 1024 * 1024) {
-        reject(new Error("Request body exceeded the 20MB safety limit."));
+      if (Buffer.byteLength(raw, "utf8") > maxJsonBodyBytes) {
+        reject(new Error("Request body exceeded the 16MB safety limit."));
         request.destroy();
       }
     });
@@ -156,6 +168,26 @@ const requireSameOrigin = (request, response) => {
   }
 
   return true;
+};
+
+const cleanText = (value, max = 500) => String(value ?? "").trim().slice(0, max);
+const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const publicId = (prefix) => `${prefix}-${randomBytes(12).toString("hex")}`;
+const requireFields = (body, fields) => {
+  const missing = fields.filter((field) => !cleanText(body[field]));
+  if (missing.length) throw Object.assign(new Error(`Missing required field(s): ${missing.join(", ")}.`), { status: 400 });
+};
+const parseResume = (body) => {
+  const mimeType = cleanText(body.resumeMimeType, 120);
+  const allowed = new Map([["application/pdf", "pdf"], ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"]]);
+  if (!allowed.has(mimeType)) throw Object.assign(new Error("Resume must be a PDF or DOCX file."), { status: 400 });
+  const prefix = `data:${mimeType};base64,`;
+  if (typeof body.resumeDataUrl !== "string" || !body.resumeDataUrl.startsWith(prefix)) throw Object.assign(new Error("Resume upload payload is invalid."), { status: 400 });
+  const data = Buffer.from(body.resumeDataUrl.slice(prefix.length), "base64");
+  if (!data.length || data.length > 6 * 1024 * 1024) throw Object.assign(new Error("Resume must be no larger than 6MB."), { status: 413 });
+  const signatureOk = mimeType === "application/pdf" ? data.subarray(0, 5).toString() === "%PDF-" : data[0] === 0x50 && data[1] === 0x4b;
+  if (!signatureOk) throw Object.assign(new Error("Resume file signature does not match its declared type."), { status: 400 });
+  return { data, mimeType, extension: allowed.get(mimeType), fileName: cleanText(body.resumeFileName, 180) || `resume.${allowed.get(mimeType)}` };
 };
 
 const getLoginAttemptState = (clientAddress) => {
@@ -284,6 +316,10 @@ const serveStaticAsset = async (request, response) => {
       const file = await readFile(resolvedPath);
       response.writeHead(200, {
         "Content-Type": mimeTypes[path.extname(resolvedPath)] || "application/octet-stream",
+        ...securityHeaders,
+        "Cache-Control": resolvedPath.includes(`${path.sep}assets${path.sep}`)
+          ? "public, max-age=31536000, immutable"
+          : "no-cache",
       });
       response.end(file);
       return;
@@ -302,6 +338,8 @@ const serveStaticAsset = async (request, response) => {
   const html = await readFile(fallbackPath);
   response.writeHead(200, {
     "Content-Type": "text/html; charset=utf-8",
+    ...securityHeaders,
+    "Cache-Control": "no-cache",
   });
   response.end(html);
 };
@@ -314,8 +352,8 @@ const handleBootstrap = async (request, response) => {
     sessionRole,
     hasQuoteSession: sessionRole === "staff" || sessionRole === "admin",
     hasAdminSession: sessionRole === "admin",
-    adminEmailHint: persistedState.appState.settings.adminEmail,
-    staffEmailHint: persistedState.appState.settings.staffEmail,
+    adminEmailHint: "",
+    staffEmailHint: "",
     appState: buildStateForRole(persistedState, sessionRole),
   });
 };
@@ -326,6 +364,7 @@ const handleLogin = async (request, response) => {
   }
 
   const body = await readJsonBody(request);
+  validatePublicFormSecurity(body, request, "login");
   const role = body.role === "staff" || body.role === "admin" ? body.role : null;
   if (!role) {
     sendJson(response, 400, {
@@ -349,11 +388,13 @@ const handleLogin = async (request, response) => {
 
   const expectedEmail =
     role === "admin"
-      ? persistedState.appState.settings.adminEmail.trim().toLowerCase()
+      ? String(process.env.DC_OWNER_USERNAME || persistedState.appState.settings.adminEmail).trim().toLowerCase()
       : persistedState.appState.settings.staffEmail.trim().toLowerCase();
   const passwordMatches =
     role === "admin"
-      ? verifyAdminPassword(persistedState, password)
+      ? process.env.DC_OWNER_PASSWORD
+        ? password === process.env.DC_OWNER_PASSWORD
+        : verifyAdminPassword(persistedState, password)
       : verifyStaffPassword(persistedState, password);
 
   if (email !== expectedEmail || !passwordMatches) {
@@ -418,8 +459,26 @@ const handleSaveQuote = async (request, response) => {
   }
 
   const body = await readJsonBody(request);
-  const record = body.record;
+  const sessionRole = getSessionRole(request);
+  let record = body.record;
   const quote = body.quote;
+  if (sessionRole === "public") {
+    validatePublicFormSecurity(body, request, "estimate");
+    if (!record?.client || !validEmail(cleanText(record.client.email, 254)) || (record.client.consentEmailContact !== true && record.client.consentSmsContact !== true)) {
+      sendJson(response, 400, { message: "A valid contact and consent to email or text are required." });
+      return;
+    }
+    record = {
+      ...record,
+      id: publicId("crm"),
+      source: "public-estimate",
+      client: { ...record.client, jobStatus: "Prospecting/Negotiating", paymentCollected: false, paymentAmount: 0, assignedRep: "" },
+      crewLead: "",
+      documentation: [],
+    };
+  } else if (!requireQuoteAuth(request, response)) {
+    return;
+  }
 
   if (!record || !quote) {
     sendJson(response, 400, {
@@ -512,6 +571,23 @@ const handleSettingsUpdate = async (request, response) => {
   sendJson(response, 200, {
     appState: buildAdminState(nextState),
     message: "Admin settings updated on the secure server.",
+  });
+};
+
+const handleOperationsUpdate = async (request, response) => {
+  if (!requireSameOrigin(request, response)) {
+    return;
+  }
+
+  if (!requireAdminAuth(request, response)) {
+    return;
+  }
+
+  const body = await readJsonBody(request);
+  const nextState = await updateOperationsState(body.patch || {});
+  sendJson(response, 200, {
+    appState: buildAdminState(nextState),
+    message: "Operational workspace updated on the secure server.",
   });
 };
 
@@ -612,6 +688,10 @@ const handleQuoteEmail = async (request, response) => {
     return;
   }
 
+  if (!requireQuoteAuth(request, response)) {
+    return;
+  }
+
   const body = await readJsonBody(request);
   const persistedState = await readPersistedState();
 
@@ -645,10 +725,75 @@ const handleAiRequest = async (request, response, resolver) => {
     return;
   }
 
+  if (!requireQuoteAuth(request, response)) {
+    return;
+  }
+
   const body = await readJsonBody(request);
   const persistedState = await readPersistedState();
   const result = await resolver(persistedState.appState.settings, persistedState.secrets, body);
   sendJson(response, 200, result);
+};
+
+const publicSubmissionWindows = new Map();
+const validatePublicFormSecurity = (body, request, kind) => {
+  if (cleanText(body.website, 200)) throw Object.assign(new Error("Submission could not be verified."), { status: 400 });
+  const startedAt = Number(body.formStartedAt);
+  const age = Date.now() - startedAt;
+  if (!Number.isFinite(startedAt) || age < 1500 || age > 2 * 60 * 60 * 1000) throw Object.assign(new Error("Please refresh the form and complete the security check again."), { status: 400 });
+  const a = Number(body.challengeA); const b = Number(body.challengeB); const answer = Number(body.challengeAnswer);
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 2 || b < 2 || a > 8 || b > 8 || answer !== a + b) throw Object.assign(new Error("The security answer is incorrect."), { status: 400 });
+  const client = cleanText(request.socket?.remoteAddress || request.headers["x-forwarded-for"] || "unknown", 100).split(",")[0];
+  const key = `${kind}:${client}`; const now = Date.now(); const recent = (publicSubmissionWindows.get(key) || []).filter((stamp) => now - stamp < 15 * 60 * 1000);
+  if (recent.length >= 6) throw Object.assign(new Error("Too many submissions. Please wait and try again."), { status: 429 });
+  publicSubmissionWindows.set(key, [...recent, now]);
+};
+
+const handlePublicIntake = async (request, response, kind) => {
+  if (!requireSameOrigin(request, response)) return;
+  const body = await readJsonBody(request);
+  if (kind !== "analytics") validatePublicFormSecurity(body, request, kind);
+  const now = new Date().toISOString();
+  if (kind === "contact") {
+    requireFields(body, ["firstName", "lastName", "email", "phone", "message"]);
+    if (!validEmail(cleanText(body.email, 254)) || body.consentToContact !== true) throw Object.assign(new Error("A valid email and consent to contact are required."), { status: 400 });
+    const record = { id: publicId("lead"), firstName: cleanText(body.firstName, 80), lastName: cleanText(body.lastName, 80), email: cleanText(body.email, 254).toLowerCase(), phone: cleanText(body.phone, 40), preferredContact: ["Email", "Phone", "Text"].includes(body.preferredContact) ? body.preferredContact : "Phone", serviceInterest: Array.isArray(body.serviceInterest) ? body.serviceInterest.slice(0, 10).map((v) => cleanText(v, 80)).filter(Boolean) : [], message: cleanText(body.message, 4000), financingInterest: body.financingInterest === true, consentToContact: true, status: "New", createdAt: now };
+    await savePublicIntake("contactLeads", record); sendJson(response, 201, { message: "Thank you. Your request has been received.", id: record.id }); return;
+  }
+  if (kind === "financing") {
+    requireFields(body, ["firstName", "lastName", "email", "phone", "projectType", "financingGoals"]);
+    if (!validEmail(cleanText(body.email, 254)) || body.consentToContact !== true) throw Object.assign(new Error("A valid email and consent to contact are required."), { status: 400 });
+    const amount = (value) => Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.min(Number(value), 10000000) : null;
+    const record = { id: publicId("finance"), firstName: cleanText(body.firstName, 80), lastName: cleanText(body.lastName, 80), email: cleanText(body.email, 254).toLowerCase(), phone: cleanText(body.phone, 40), projectType: cleanText(body.projectType, 160), estimatedProjectCost: amount(body.estimatedProjectCost), requestedAmount: amount(body.requestedAmount), timeline: cleanText(body.timeline, 160), financingGoals: cleanText(body.financingGoals, 4000), estimateRecordId: cleanText(body.estimateRecordId, 128), consentToContact: true, status: "New", createdAt: now };
+    await savePublicIntake("financingInquiries", record); sendJson(response, 201, { message: "Your financing inquiry has been received for owner review.", id: record.id }); return;
+  }
+  if (kind === "analytics") {
+    const allowedEvents = ["page_view", "page_leave", "cta_click", "service_interest", "financing_resource_click"];
+    if (!allowedEvents.includes(body.eventType)) throw Object.assign(new Error("Unsupported analytics event."), { status: 400 });
+    const record = { id: publicId("event"), anonymousSessionId: cleanText(body.anonymousSessionId, 80), eventType: body.eventType, page: cleanText(body.page, 120), target: cleanText(body.target, 200), durationSeconds: Number.isFinite(Number(body.durationSeconds)) ? Math.max(0, Math.min(86400, Number(body.durationSeconds))) : null, occurredAt: now };
+    await savePublicIntake("analyticsEvents", record); sendJson(response, 202, { message: "Event accepted." }); return;
+  }
+};
+
+const handleCareersApply = async (request, response) => {
+  if (!requireSameOrigin(request, response)) return;
+  const body = await readJsonBody(request);
+  validatePublicFormSecurity(body, request, "careers");
+  requireFields(body, ["firstName", "lastName", "email", "phone"]);
+  if (!validEmail(cleanText(body.email, 254)) || body.consentToAiReview !== true) throw Object.assign(new Error("A valid email and consent to application review are required."), { status: 400 });
+  const rawAnswers = body.answers && typeof body.answers === "object" && !Array.isArray(body.answers) ? body.answers : {};
+  const answers = Object.fromEntries(Object.entries(rawAnswers).slice(0, 30).map(([key, value]) => [cleanText(key, 100), typeof value === "boolean" || typeof value === "number" ? value : cleanText(value, 2000)]).filter(([key]) => key));
+  if (Object.keys(answers).filter((key) => cleanText(answers[key], 2000)).length < 10) throw Object.assign(new Error("Please answer at least 10 application questions."), { status: 400 });
+  const resume = parseResume(body); const storageKey = await storeApplicantResume(resume); const now = new Date().toISOString();
+  const skills = Array.isArray(body.skills) ? body.skills.slice(0, 30).map((v) => cleanText(v, 80)).filter(Boolean) : cleanText(body.skills, 1000).split(",").map((v) => v.trim()).filter(Boolean).slice(0, 30);
+  const years = Math.max(0, Math.min(60, Number(body.yearsExperience) || 0));
+  const answerScore = Math.min(35, Object.keys(answers).filter((key) => cleanText(answers[key], 2000)).length * 2); const skillsScore = Math.min(100, 20 + skills.length * 8 + years * 3); const score = Math.round(Math.min(100, answerScore + skillsScore * .55 + (resume.data.length ? 10 : 0)));
+  const applicant = { id: publicId("applicant"), firstName: cleanText(body.firstName, 80), lastName: cleanText(body.lastName, 80), email: cleanText(body.email, 254).toLowerCase(), phone: cleanText(body.phone, 40), city: cleanText(body.city, 100), state: cleanText(body.state, 40) || "IL", source: "Website", desiredRoles: Array.isArray(body.desiredRoles) ? body.desiredRoles.slice(0, 5).map((v) => cleanText(v, 100)) : [cleanText(body.desiredRole, 100)].filter(Boolean), skills, yearsExperience: years, certifications: Array.isArray(body.certifications) ? body.certifications.slice(0, 20).map((v) => cleanText(v, 120)) : [], availabilityDate: cleanText(body.availabilityDate, 20), employmentPreference: ["Full-time"], stage: "New", assignedTo: "", resumeFileName: resume.fileName, resumeText: cleanText(body.resumeText, 50000), resume: { fileName: resume.fileName, mimeType: resume.mimeType, size: resume.data.length, storageKey }, notes: "", consentToAiReview: true, applicationAnswers: answers, createdAt: now, updatedAt: now };
+  const review = { id: publicId("review"), subjectType: "Applicant", subjectId: applicant.id, reviewType: "Job Readiness", status: "Needs Human Review", provider: "explainable-rules", model: "public-application-v1", score, summary: `Preliminary readiness score based on ${skills.length} reported skills, ${years} years of experience, and ${Object.keys(answers).length} questionnaire responses.`, strengths: skills.slice(0, 5), gaps: skills.length ? [] : ["Skills require recruiter validation"], recommendations: ["Complete a structured human interview", "Verify experience, training, certifications, and work eligibility"], evidence: ["Applicant questionnaire", "Applicant-provided resume metadata", "Self-reported skills and experience"], confidence: .62, humanDecision: "Pending", reviewedBy: "", createdAt: now, completedAt: now };
+  const savedState = await savePublicIntake("applicants", applicant, review);
+  let notificationStatus = "skipped";
+  try { notificationStatus = (await sendCandidateNotification(savedState.appState.settings, applicant, review)).status; } catch { notificationStatus = "failed"; }
+  sendJson(response, 201, { message: "Thank you for submitting your information for consideration. If work becomes available, someone from our office will reach out to you.", applicationId: applicant.id, notificationStatus });
 };
 
 const server = createServer(async (request, response) => {
@@ -665,6 +810,15 @@ const server = createServer(async (request, response) => {
       await handleBootstrap(request, response);
       return;
     }
+    if (request.method === "GET" && pathname === "/api/gallery") {
+      const state = await readPersistedState();
+      sendJson(response, 200, { projects: buildPublicState(state).galleryProjects });
+      return;
+    }
+    if (request.method === "POST" && pathname === "/api/contact") { await handlePublicIntake(request, response, "contact"); return; }
+    if (request.method === "POST" && pathname === "/api/financing") { await handlePublicIntake(request, response, "financing"); return; }
+    if (request.method === "POST" && pathname === "/api/analytics") { await handlePublicIntake(request, response, "analytics"); return; }
+    if (request.method === "POST" && pathname === "/api/careers/apply") { await handleCareersApply(request, response); return; }
 
     if (request.method === "POST" && pathname === "/api/auth/login") {
       await handleLogin(request, response);
@@ -683,6 +837,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "PUT" && pathname === "/api/admin/settings") {
       await handleSettingsUpdate(request, response);
+      return;
+    }
+
+    if (request.method === "PUT" && pathname === "/api/admin/operations") {
+      await handleOperationsUpdate(request, response);
       return;
     }
 
@@ -744,7 +903,7 @@ const server = createServer(async (request, response) => {
     await serveStaticAsset(request, response);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected server error.";
-    sendJson(response, 500, {
+    sendJson(response, Number(error?.status) || 500, {
       message,
     });
   }

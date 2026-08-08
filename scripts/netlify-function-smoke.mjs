@@ -18,6 +18,7 @@ const MOCK_BASE = process.env.MOCK_BASE_URL || "http://127.0.0.1:4310";
 const log = (message) => {
   console.log(message);
 };
+const securityCheck = () => ({ website: "", formStartedAt: Date.now() - 3000, challengeA: 4, challengeB: 5, challengeAnswer: 9 });
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -248,11 +249,18 @@ const run = async () => {
   );
   log("PASS netlify public bootstrap exposes only redacted history.");
 
+  const publicAiAttempt = await requestJson("/api/ai/scope-plan", { method: "POST", body: {} }, publicJar);
+  assert(publicAiAttempt.status === 401, "Public sessions must not invoke billable AI routes.");
+  const publicEmailAttempt = await requestJson("/api/quotes/email", { method: "POST", body: {} }, publicJar);
+  assert(publicEmailAttempt.status === 401, "Public sessions must not invoke quote email delivery.");
+  log("PASS netlify public sessions cannot invoke protected AI or email routes.");
+
   const publicQuoteSave = await requestJson(
     "/api/quotes/save",
     {
       method: "POST",
       body: {
+        ...securityCheck(),
         record: publicSmokeRecord,
         quote: smokeQuote,
       },
@@ -260,6 +268,8 @@ const run = async () => {
     publicJar,
   );
   assert(publicQuoteSave.ok, "Public estimate request save should succeed.");
+  assert(publicQuoteSave.payload.recordId && publicQuoteSave.payload.recordId !== publicSmokeRecordId, "Public estimate save must return a server-generated CRM ID.");
+  const persistedPublicRecordId = publicQuoteSave.payload.recordId;
   log("PASS netlify public estimate request save succeeded.");
 
   const staffLogin = await requestJson(
@@ -267,6 +277,7 @@ const run = async () => {
     {
       method: "POST",
       body: {
+        ...securityCheck(),
         role: "staff",
         email: STAFF_EMAIL,
         password: STAFF_PASSWORD,
@@ -282,6 +293,7 @@ const run = async () => {
     {
       method: "POST",
       body: {
+        ...securityCheck(),
         role: "admin",
         email: ADMIN_EMAIL,
         password: ADMIN_PASSWORD,
@@ -291,6 +303,53 @@ const run = async () => {
   );
   assert(adminLogin.ok, "Netlify admin login failed.");
   log("PASS netlify admin login succeeds.");
+
+  const unauthorizedOperationsUpdate = await requestJson(
+    "/api/admin/operations",
+    {
+      method: "PUT",
+      body: {
+        patch: {
+          applicants: [],
+        },
+      },
+    },
+    staffJar,
+  );
+  assert(
+    unauthorizedOperationsUpdate.status === 401,
+    "Netlify staff session should not update executive operations data.",
+  );
+  log("PASS netlify staff session cannot update executive operations data.");
+
+  const operationsDashboard = await requestJson("/api/admin/dashboard", {}, adminJar);
+  assert(operationsDashboard.ok, "Netlify admin dashboard read failed before operations round-trip.");
+  const operationsPatch = Object.fromEntries(
+    ["applicants", "jobOpenings", "projects", "employees", "materials", "aiReviews"].map((key) => [
+      key,
+      operationsDashboard.payload.appState[key] || [],
+    ]),
+  );
+  const operationsUpdate = await requestJson(
+    "/api/admin/operations",
+    {
+      method: "PUT",
+      body: {
+        patch: operationsPatch,
+      },
+    },
+    adminJar,
+  );
+  assert(operationsUpdate.ok, "Netlify admin operations update failed.");
+  const operationsRoundTrip = await requestJson("/api/admin/dashboard", {}, adminJar);
+  assert(operationsRoundTrip.ok, "Netlify admin dashboard read failed after operations update.");
+  for (const [key, expected] of Object.entries(operationsPatch)) {
+    assert(
+      JSON.stringify(operationsRoundTrip.payload.appState[key] || []) === JSON.stringify(expected),
+      `Netlify executive operations round-trip did not preserve ${key}.`,
+    );
+  }
+  log("PASS netlify executive operations collections persist through an authenticated round-trip.");
 
   const currentSettings = adminLogin.payload.appState.settings;
   const settingsUpdate = await requestJson(
@@ -336,7 +395,7 @@ const run = async () => {
   log("PASS netlify quote email webhook path succeeds.");
 
   const consultationConfirm = await requestJson(
-    `/api/admin/records/${publicSmokeRecordId}`,
+    `/api/admin/records/${persistedPublicRecordId}`,
     {
       method: "PATCH",
       body: {

@@ -5,7 +5,7 @@ export type ServiceCategory =
   | "handiwork"
   | "electrical-hvac";
 
-export type AiProvider = "heuristic" | "openai-direct" | "webhook";
+export type AiProvider = "heuristic" | "openai-direct" | "anthropic-direct" | "webhook";
 export type AuthRole = "staff" | "admin";
 export type SessionRole = "public" | AuthRole;
 
@@ -94,11 +94,14 @@ export interface AppSettings {
   staffPassword: string;
   serviceAreaZip: string;
   aiProvider: AiProvider;
+  automationEnabled: boolean;
   googleAppsScriptUrl: string;
   aiWebhookUrl: string;
   emailWebhookUrl: string;
   openAiApiKey: string;
+  anthropicApiKey: string;
   openAiModel: string;
+  anthropicModel: string;
   openAiSearchModel: string;
   openAiTranscriptionModel: string;
   lowMarkupPct: number;
@@ -115,6 +118,8 @@ export interface AppSettings {
   hasAdminPassword: boolean;
   hasStaffPassword: boolean;
   hasOpenAiApiKey: boolean;
+  hasAiGateway: boolean;
+  hasAnthropicApiKey: boolean;
   hasAiWebhook: boolean;
   hasEmailWebhook: boolean;
   hasGoogleSheetsSync: boolean;
@@ -308,11 +313,267 @@ export interface CrmRecord {
   documentation: string[];
 }
 
+export type ApplicantStage = "New" | "Screening" | "Interview" | "Offer" | "Hired" | "Rejected" | "Withdrawn";
+export type EmploymentType = "Full-time" | "Part-time" | "Temporary" | "Contract";
+
+export interface Applicant {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  city: string;
+  state: string;
+  source: "Website" | "Referral" | "Job board" | "Walk-in" | "Other";
+  desiredRoles: string[];
+  skills: string[];
+  yearsExperience: number;
+  certifications: string[];
+  availabilityDate: string;
+  employmentPreference: EmploymentType[];
+  stage: ApplicantStage;
+  assignedTo: string;
+  resumeFileName: string;
+  resumeText: string;
+  notes: string;
+  consentToAiReview: boolean;
+  createdAt: string;
+  updatedAt: string;
+  applicationAnswers?: Record<string, string | boolean | number>;
+  resume?: { fileName: string; mimeType: "application/pdf" | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; size: number; storageKey: string };
+}
+
+export interface ContactLead {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  preferredContact: "Email" | "Phone" | "Text";
+  serviceInterest: string[];
+  message: string;
+  financingInterest: boolean;
+  consentToContact: boolean;
+  status: "New" | "Contacted" | "Qualified" | "Closed";
+  createdAt: string;
+}
+
+export interface FinancingInquiry {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  projectType: string;
+  estimatedProjectCost: number | null;
+  requestedAmount: number | null;
+  timeline: string;
+  financingGoals: string;
+  estimateRecordId: string;
+  consentToContact: boolean;
+  status: "New" | "Reviewing" | "Referred" | "Closed";
+  createdAt: string;
+}
+
+export interface SiteAnalyticsEvent {
+  id: string;
+  anonymousSessionId: string;
+  eventType: "page_view" | "page_leave" | "cta_click" | "service_interest" | "financing_resource_click";
+  page: string;
+  target: string;
+  durationSeconds: number | null;
+  occurredAt: string;
+}
+
+export interface GalleryProject {
+  id: string;
+  title: string;
+  slug: string;
+  city: string;
+  state: string;
+  projectType: string;
+  purpose?: string;
+  propertyLabel?: string;
+  address?: string;
+  summary: string;
+  completedAt: string;
+  coverImageUrl: string;
+  media: Array<{ id: string; type: "image" | "video"; url: string; thumbnailUrl: string; alt: string; caption: string; attribution?: string }>;
+  published: boolean;
+  displayOrder?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PodcastEpisode {
+  id: string;
+  episodeNumber: number;
+  title: string;
+  description: string;
+  format: "Audio" | "Video" | "Audio & Video";
+  mediaUrl: string;
+  thumbnailUrl: string;
+  duration: string;
+  publishedAt: string;
+  status: "Draft" | "Scheduled" | "Published";
+  featured: boolean;
+}
+
+export interface PodcastEvent {
+  id: string;
+  title: string;
+  startsAt: string;
+  durationMinutes: number;
+  format: "Live stream" | "Premiere" | "Recording";
+  watchUrl: string;
+  description: string;
+  published: boolean;
+}
+
+export interface JobOpening {
+  id: string;
+  title: string;
+  department: "Field Operations" | "Estimating" | "Administration" | "Project Management";
+  employmentType: EmploymentType;
+  location: string;
+  status: "Draft" | "Open" | "Paused" | "Filled" | "Closed";
+  openings: number;
+  requiredSkills: string[];
+  preferredSkills: string[];
+  minimumYearsExperience: number;
+  requiredCertifications: string[];
+  payRangeLow: number;
+  payRangeHigh: number;
+  description: string;
+  hiringManager: string;
+  targetStartDate: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Employee {
+  id: string;
+  firstName: string;
+  lastName: string;
+  title: string;
+  employmentType: EmploymentType;
+  status: "Active" | "Leave" | "Inactive";
+  email: string;
+  phone: string;
+  hireDate: string;
+  hourlyRate: number;
+  payFrequency: "Daily" | "Weekly" | "Biweekly" | "Semimonthly" | "Monthly" | "Per Project" | "Contracted" | "Hourly" | "Commission" | "Other";
+  paymentMethod: "Cash" | "Check" | "Direct Deposit" | "PayPal" | "Cash App" | "Venmo" | "Zelle" | "ACH" | "Prepaid Card" | "Other";
+  /** Private payout alias or account label only. Never store bank/card numbers here. */
+  paymentHandle: string;
+  skills: string[];
+  certifications: Array<{ name: string; expiresAt: string }>;
+  availability: "Available" | "Partially Allocated" | "Fully Allocated" | "Unavailable";
+  weeklyCapacityHours: number;
+  assignedProjectIds: string[];
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  notes: string;
+}
+
+export interface ProjectMilestone {
+  id: string;
+  name: string;
+  dueDate: string;
+  status: "Not Started" | "In Progress" | "Blocked" | "Complete";
+  percentComplete: number;
+}
+
+export interface ProjectRisk {
+  id: string;
+  title: string;
+  impact: "Low" | "Medium" | "High" | "Critical";
+  probability: "Low" | "Medium" | "High";
+  mitigation: string;
+  owner: string;
+  status: "Open" | "Monitoring" | "Resolved";
+}
+
+export interface Project {
+  id: string;
+  crmRecordId: string;
+  name: string;
+  clientName: string;
+  status: "Planning" | "Active" | "On Hold" | "Completed" | "Cancelled";
+  health: "Green" | "Amber" | "Red";
+  priority: "Low" | "Medium" | "High" | "Critical";
+  projectManager: string;
+  employeeIds: string[];
+  startDate: string;
+  targetEndDate: string;
+  budget: number;
+  committedCost: number;
+  actualCost: number;
+  percentComplete: number;
+  summary: string;
+  milestones: ProjectMilestone[];
+  risks: ProjectRisk[];
+  materialIds: string[];
+  updatedAt: string;
+}
+
+export interface MaterialItem {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  unit: string;
+  quantityOnHand: number;
+  quantityReserved: number;
+  reorderPoint: number;
+  unitCost: number;
+  supplierName: string;
+  supplierUrl: string;
+  leadTimeDays: number;
+  location: string;
+  projectIds: string[];
+  status: "In Stock" | "Low Stock" | "Backordered" | "Discontinued";
+  lastUpdatedAt: string;
+}
+
+export interface AiReview {
+  id: string;
+  subjectType: "Applicant" | "Project" | "Employee" | "Material";
+  subjectId: string;
+  reviewType: "Job Readiness" | "Project Health" | "Workforce Match" | "Material Risk";
+  status: "Pending" | "Completed" | "Failed" | "Needs Human Review";
+  provider: string;
+  model: string;
+  score: number | null;
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  recommendations: string[];
+  evidence: string[];
+  confidence: number | null;
+  humanDecision: "Pending" | "Accepted" | "Overridden";
+  reviewedBy: string;
+  createdAt: string;
+  completedAt: string;
+}
+
 export interface AppState {
   settings: AppSettings;
   crmRecords: CrmRecord[];
   reminders: Reminder[];
   historicalJobs: HistoricalJob[];
+  applicants: Applicant[];
+  jobOpenings: JobOpening[];
+  projects: Project[];
+  employees: Employee[];
+  materials: MaterialItem[];
+  aiReviews: AiReview[];
+  contactLeads: ContactLead[];
+  financingInquiries: FinancingInquiry[];
+  analyticsEvents: SiteAnalyticsEvent[];
+  galleryProjects: GalleryProject[];
+  podcastEpisodes: PodcastEpisode[];
+  podcastEvents: PodcastEvent[];
 }
 
 export interface BootstrapPayload {
