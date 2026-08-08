@@ -1598,8 +1598,8 @@ body { background: var(--brand-cream); color: var(--brand-charcoal); }
 /* Executive edition: quiet black, graphite, and ivory without changing public workflows. */
 .edition-executive{--brand-navy:#111111;--brand-navy-2:#242424;--brand-orange:#b78a44;--brand-charcoal:#151515;--brand-steel:#5e5a55;--brand-cream:#f7f4ed}
 .edition-executive .brand-hero{background-image:linear-gradient(90deg,rgba(8,8,8,.9) 0%,rgba(18,18,18,.72) 45%,rgba(18,18,18,.16) 76%,rgba(255,255,255,.03) 100%),url('/contracting-hero-2026.webp')}
-.edition-executive .logo-frame{border-color:rgba(0,0,0,.28);background:#f7f4ed;box-shadow:0 20px 55px rgba(0,0,0,.34),0 0 0 6px rgba(247,244,237,.14)}
-.edition-executive .logo-frame--hero{position:relative}.edition-executive .brand-hero__logo{opacity:0}.edition-executive .logo-frame--hero:after{content:"";position:absolute;inset:0;background:url('/davids-contracting-executive.svg') center/contain no-repeat;pointer-events:none}
+.edition-executive .logo-frame{position:relative;border-color:rgba(0,0,0,.28);background:#f7f4ed;box-shadow:0 20px 55px rgba(0,0,0,.34),0 0 0 6px rgba(247,244,237,.14)}
+.edition-executive .logo-frame img{opacity:0}.edition-executive .logo-frame:after{content:"";position:absolute;inset:0;background:url('/davids-contracting-executive.svg') center/contain no-repeat;pointer-events:none}
 .edition-executive .brand-kicker{color:#b78a44}.edition-executive .brand-button{border-color:#b78a44;background:#b78a44;color:#111}.edition-executive .brand-button--quiet{border-color:#fff;color:#fff;background:transparent}.edition-executive .brand-services,.edition-executive .brand-footer,.edition-executive .site-footer{background:#111}.edition-executive .brand-proof__visual figcaption{background:rgba(0,0,0,.9)}.edition-executive .topbar__login{border-color:#b78a44;background:#111;color:#fff}
 
 /* Editorial media treatment for the public information pages. */
