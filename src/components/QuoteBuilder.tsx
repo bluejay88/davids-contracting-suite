@@ -193,7 +193,7 @@ const quickStartBundles: Array<{
 ];
 
 export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveRecord, onOpenAdmin }: QuoteBuilderProps) {
-  const { securityPayload: estimateSecurityPayload, securityFields: estimateSecurityFields } = useFormSecurity();
+  const { securityPayload: estimateSecurityPayload, securityFields: estimateSecurityFields } = useFormSecurity("estimate");
   const [activeCategories, setActiveCategories] = useState<ServiceCategory[]>(["painting"]);
   const [openTaskCategory, setOpenTaskCategory] = useState<ServiceCategory | null>("painting");
   const [clientIntake, setClientIntake] = useState<ClientIntake>(() => defaultClientIntake(settings.repProfile.repName));

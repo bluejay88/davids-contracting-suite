@@ -48,7 +48,7 @@ const initialPublicState: AppState = {
 
 export default function App() {
   const secureSessionKey = "dc-secure-session-active";
-  const { securityPayload: loginSecurityPayload, securityFields: loginSecurityFields } = useFormSecurity();
+  const { securityPayload: loginSecurityPayload, securityFields: loginSecurityFields } = useFormSecurity("login");
   const [appState, setAppState] = useState<AppState>(initialPublicState);
   const [activeView, setActiveView] = useState<ViewKey>("landing");
   const [sessionRole, setSessionRole] = useState<SessionRole>("public");

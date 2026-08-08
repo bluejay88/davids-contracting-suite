@@ -19,7 +19,7 @@ export function CookieAccessibilityCenter() {
 
 export function SiteAssistant({navigate}:{navigate:(destination:Destination)=>void}) {
   const [open,setOpen]=useState(false); const [mode,setMode]=useState<"welcome"|"lead">("welcome"); const [sent,setSent]=useState(false); const [error,setError]=useState("");
-  const [lead,setLead]=useState({name:"",email:"",phone:"",message:"",consent:false}); const {securityPayload,securityFields}=useFormSecurity();
+  const [lead,setLead]=useState({name:"",email:"",phone:"",message:"",consent:false}); const {securityPayload,securityFields}=useFormSecurity("assistant");
   const [question,setQuestion]=useState("");
   const [conversation,setConversation]=useState<Array<{role:"user"|"assistant";text:string;reply?:AssistantReply}>>([{role:"assistant",text:"Hi! Ask me about services, project planning, estimates, financing resources, careers, the gallery, or contacting the team."}]);
   const transcriptRef=useRef<HTMLDivElement>(null);

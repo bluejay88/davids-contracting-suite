@@ -170,6 +170,17 @@ const getSessionSecret = (persistedState) =>
   `${persistedState.secrets.adminPasswordHash}:${persistedState.secrets.staffPasswordHash}`;
 
 const signPayload = (secret, payload) => createHmac("sha256", secret).update(payload).digest("hex");
+const formChallengeTtlMs = 1000 * 60 * 10;
+const usedFormChallenges = new Map();
+const supportedChallengeActions = new Set(["login", "estimate", "contact", "financing", "careers", "assistant"]);
+const createFormChallenge = (persistedState, action) => {
+  const issuedAt = Date.now();
+  const challengeId = randomBytes(18).toString("hex");
+  const a = randomBytes(1)[0] % 7 + 2;
+  const b = randomBytes(1)[0] % 7 + 2;
+  const payload = `${action}.${challengeId}.${issuedAt}.${a}.${b}`;
+  return { action, challengeId, issuedAt, a, b, signature: signPayload(getSessionSecret(persistedState), payload) };
+};
 
 const makeSessionCookie = (cookieValue, clear = false) =>
   `${sessionCookieName}=${clear ? "" : encodeURIComponent(cookieValue)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${clear ? 0 : 43200}`;
@@ -286,7 +297,7 @@ const handleLogin = async (request, persistedState) => {
   }
 
   const body = await parseJsonBody(request);
-  validatePublicFormSecurity(body, request, "login");
+  validatePublicFormSecurity(body, request, "login", persistedState);
   const role = body.role === "staff" || body.role === "admin" || body.role === "developer" ? body.role : null;
   if (!role) {
     return jsonResponse(
@@ -434,7 +445,7 @@ const handleSaveQuote = async (request, persistedState) => {
   let record = body.record;
   let quote = body.quote;
   if (sessionRole === "public") {
-    validatePublicFormSecurity(body, request, "estimate");
+    validatePublicFormSecurity(body, request, "estimate", persistedState);
     ({ record, quote } = sanitizePublicEstimateRequest(record, quote));
   } else {
     const authError = requireQuoteAuth(request, persistedState);
@@ -559,6 +570,12 @@ const handleOperationsUpdate = async (request, persistedState) => {
     appState: buildAdminState(nextState),
     message: "Operational workspace updated on the secure server.",
   });
+};
+
+const handleFormChallenge = (request, persistedState) => {
+  const action = cleanText(new URL(request.url).searchParams.get("action"), 40);
+  if (!supportedChallengeActions.has(action)) return jsonResponse({ message: "Unsupported security check." }, 400);
+  return jsonResponse(createFormChallenge(persistedState, action));
 };
 
 const handleDeveloperDashboard = async (request, persistedState) => {
@@ -782,21 +799,27 @@ const handleAiRequest = async (request, persistedState, resolver) => {
 };
 
 const publicSubmissionWindows = new Map();
-const validatePublicFormSecurity = (body, request, kind) => {
+const validatePublicFormSecurity = (body, request, kind, persistedState) => {
   if (cleanText(body.website, 200)) throw Object.assign(new Error("Submission could not be verified."), { status: 400 });
-  const startedAt = Number(body.formStartedAt); const age = Date.now() - startedAt;
-  if (!Number.isFinite(startedAt) || age < 1500 || age > 2 * 60 * 60 * 1000) throw Object.assign(new Error("Please refresh the form and complete the security check again."), { status: 400 });
-  const a = Number(body.challengeA); const b = Number(body.challengeB); const answer = Number(body.challengeAnswer);
-  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 2 || b < 2 || a > 8 || b > 8 || answer !== a + b) throw Object.assign(new Error("The security answer is incorrect."), { status: 400 });
+  const issuedAt = Number(body.challengeIssuedAt); const age = Date.now() - issuedAt;
+  const action = cleanText(body.challengeAction, 40); const challengeId = cleanText(body.challengeId, 80);
+  const a = Number(body.challengeA); const b = Number(body.challengeB); const answer = Number(body.challengeAnswer); const signature = cleanText(body.challengeSignature, 160);
+  if (action !== kind || !challengeId || !Number.isFinite(issuedAt) || age < 1200 || age > formChallengeTtlMs || !Number.isInteger(a) || !Number.isInteger(b) || a < 2 || b < 2 || a > 8 || b > 8) throw Object.assign(new Error("Please refresh the security check and try again."), { status: 400 });
+  const payload = `${action}.${challengeId}.${issuedAt}.${a}.${b}`;
+  const expected = signPayload(getSessionSecret(persistedState), payload);
+  if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected)) || answer !== a + b) throw Object.assign(new Error("The security verification could not be confirmed."), { status: 400 });
+  if (usedFormChallenges.has(challengeId)) throw Object.assign(new Error("This security check has already been used. Please refresh it."), { status: 400 });
+  usedFormChallenges.set(challengeId, Date.now());
+  for (const [id, usedAt] of usedFormChallenges) if (Date.now() - usedAt > formChallengeTtlMs) usedFormChallenges.delete(id);
   const client = cleanText(request.headers.get("x-nf-client-connection-ip") || request.headers.get("x-forwarded-for") || "unknown", 100).split(",")[0];
   const key = `${kind}:${client}`; const now = Date.now(); const recent = (publicSubmissionWindows.get(key) || []).filter((stamp) => now - stamp < 15 * 60 * 1000);
   if (recent.length >= 6) throw Object.assign(new Error("Too many submissions. Please wait and try again."), { status: 429 });
   publicSubmissionWindows.set(key, [...recent, now]);
 };
 
-const handlePublicIntake = async (request, kind) => {
+const handlePublicIntake = async (request, kind, persistedState) => {
   const originError = requireSameOrigin(request); if (originError) return originError;
-  const body = await parseJsonBody(request); if (kind !== "analytics") validatePublicFormSecurity(body, request, kind); const now = new Date().toISOString();
+  const body = await parseJsonBody(request); if (kind !== "analytics") validatePublicFormSecurity(body, request, kind, persistedState); const now = new Date().toISOString();
   if (kind === "contact") {
     requireFields(body, ["firstName", "lastName", "email", "phone", "message"]); if (!validEmail(cleanText(body.email, 254)) || body.consentToContact !== true) throw Object.assign(new Error("A valid email and consent to contact are required."), { status: 400 });
     const record = { id: publicId("lead"), firstName: cleanText(body.firstName, 80), lastName: cleanText(body.lastName, 80), email: cleanText(body.email, 254).toLowerCase(), phone: cleanText(body.phone, 40), preferredContact: ["Email", "Phone", "Text"].includes(body.preferredContact) ? body.preferredContact : "Phone", serviceInterest: Array.isArray(body.serviceInterest) ? body.serviceInterest.slice(0, 10).map((v) => cleanText(v, 80)).filter(Boolean) : [], message: cleanText(body.message, 4000), financingInterest: body.financingInterest === true, consentToContact: true, status: "New", createdAt: now };
@@ -812,8 +835,8 @@ const handlePublicIntake = async (request, kind) => {
   await savePublicIntake("analyticsEvents", record); return jsonResponse({ message: "Event accepted." }, 202);
 };
 
-const handleCareersApply = async (request) => {
-  const originError = requireSameOrigin(request); if (originError) return originError; const body = await parseJsonBody(request); validatePublicFormSecurity(body, request, "careers"); requireFields(body, ["firstName", "lastName", "email", "phone"]);
+const handleCareersApply = async (request, persistedState) => {
+  const originError = requireSameOrigin(request); if (originError) return originError; const body = await parseJsonBody(request); validatePublicFormSecurity(body, request, "careers", persistedState); requireFields(body, ["firstName", "lastName", "email", "phone"]);
   if (!validEmail(cleanText(body.email, 254)) || body.consentToAiReview !== true) throw Object.assign(new Error("A valid email and consent to application review are required."), { status: 400 }); const rawAnswers = body.answers && typeof body.answers === "object" && !Array.isArray(body.answers) ? body.answers : {}; const answers = Object.fromEntries(Object.entries(rawAnswers).slice(0, 30).map(([key, value]) => [cleanText(key, 100), typeof value === "boolean" || typeof value === "number" ? value : cleanText(value, 2000)]).filter(([key]) => key));
   if (Object.keys(answers).filter((key) => cleanText(answers[key], 2000)).length < 10) throw Object.assign(new Error("Please answer at least 10 application questions."), { status: 400 });
   const resume = parseResume(body); const storageKey = await storeApplicantResume(resume); const now = new Date().toISOString(); const skills = Array.isArray(body.skills) ? body.skills.slice(0, 30).map((v) => cleanText(v, 80)).filter(Boolean) : cleanText(body.skills, 1000).split(",").map((v) => v.trim()).filter(Boolean).slice(0, 30); const years = Math.max(0, Math.min(60, Number(body.yearsExperience) || 0)); const answerScore = Math.min(35, Object.keys(answers).filter((key) => cleanText(answers[key], 2000)).length * 2); const skillsScore = Math.min(100, 20 + skills.length * 8 + years * 3); const score = Math.round(Math.min(100, answerScore + skillsScore * .55 + 10));
@@ -833,10 +856,11 @@ export default async (request) => {
       return handleBootstrap(request, persistedState);
     }
     if (request.method === "GET" && pathname === "/api/gallery") return jsonResponse({ projects: buildPublicState(persistedState).galleryProjects });
-    if (request.method === "POST" && pathname === "/api/contact") return await handlePublicIntake(request, "contact");
-    if (request.method === "POST" && pathname === "/api/financing") return await handlePublicIntake(request, "financing");
-    if (request.method === "POST" && pathname === "/api/analytics") return await handlePublicIntake(request, "analytics");
-    if (request.method === "POST" && pathname === "/api/careers/apply") return await handleCareersApply(request);
+    if (request.method === "GET" && pathname === "/api/security/challenge") return handleFormChallenge(request, persistedState);
+    if (request.method === "POST" && pathname === "/api/contact") return await handlePublicIntake(request, "contact", persistedState);
+    if (request.method === "POST" && pathname === "/api/financing") return await handlePublicIntake(request, "financing", persistedState);
+    if (request.method === "POST" && pathname === "/api/analytics") return await handlePublicIntake(request, "analytics", persistedState);
+    if (request.method === "POST" && pathname === "/api/careers/apply") return await handleCareersApply(request, persistedState);
 
     if (request.method === "POST" && pathname === "/api/auth/login") {
       return await handleLogin(request, persistedState);

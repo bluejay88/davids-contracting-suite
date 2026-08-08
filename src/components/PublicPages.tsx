@@ -16,7 +16,7 @@ const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
 });
 
 export function CareersPage() {
-  const { securityPayload, securityFields } = useFormSecurity();
+  const { securityPayload, securityFields } = useFormSecurity("careers");
   const formRef = useRef<HTMLFormElement>(null);
   const [step, setStep] = useState(1); const [resume, setResume] = useState<File | null>(null); const [busy, setBusy] = useState(false); const [complete, setComplete] = useState(false); const [error, setError] = useState("");
   const [form, setForm] = useState({ firstName: "", lastName: "", email: "", phone: "", city: "Decatur", state: "IL", desiredRole: "General Laborer", availabilityDate: "", employmentType: "Full-time", yearsExperience: "", education: "", training: "", certifications: "", skills: "", transportation: "", schedule: "", constructionExperience: "", toolsExperience: "", safetyExperience: "", teamworkExample: "", reliabilityExample: "", customerService: "", projectPride: "", growthGoals: "", additionalNotes: "", consent: false });
@@ -56,7 +56,7 @@ const fundingResources = [
 ];
 
 export function FinancingPage({ onOpenQuote }: { onOpenQuote: () => void }) {
-  const { securityPayload, securityFields } = useFormSecurity();
+  const { securityPayload, securityFields } = useFormSecurity("financing");
   const [complete,setComplete]=useState(false); const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [form,setForm]=useState({name:"",email:"",phone:"",zip:"62526",projectType:"",estimatedBudget:"",desiredMonthlyPayment:"",timeline:"",homeownerStatus:"Homeowner",estimateId:"",notes:"",consent:false});
   const submit=async(e:FormEvent)=>{e.preventDefault();setBusy(true);try{const names=form.name.trim().split(/\s+/);await postJson("/api/financing",{...securityPayload,firstName:names[0],lastName:names.slice(1).join(" ")||"Not provided",email:form.email,phone:form.phone,projectType:form.projectType,estimatedProjectCost:Number(form.estimatedBudget)||null,requestedAmount:null,timeline:form.timeline,financingGoals:[form.desiredMonthlyPayment,form.notes].filter(Boolean).join(" · "),estimateRecordId:form.estimateId,consentToContact:form.consent});setComplete(true)}catch(err){setError(err instanceof Error?err.message:"Submission failed.")}finally{setBusy(false)}};
   return <PublicShell kicker="Project funding resources" title="Explore options for moving your project forward.">
