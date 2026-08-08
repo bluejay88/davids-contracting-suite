@@ -476,6 +476,19 @@ export interface Employee {
   notes: string;
 }
 
+export interface FieldInvoiceDraft {
+  id: string;
+  projectId: string;
+  employeeId: string;
+  workDate: string;
+  hoursWorked: number;
+  workSummary: string;
+  materialsNote: string;
+  photoUrls: string[];
+  status: "Draft" | "Submitted" | "Approved" | "Paid" | "Returned";
+  submittedAt: string;
+}
+
 export interface ProjectMilestone {
   id: string;
   name: string;
@@ -514,6 +527,7 @@ export interface Project {
   milestones: ProjectMilestone[];
   risks: ProjectRisk[];
   materialIds: string[];
+  activity?: ProjectActivity[];
   updatedAt: string;
 }
 
@@ -574,10 +588,43 @@ export interface AppState {
   galleryProjects: GalleryProject[];
   podcastEpisodes: PodcastEpisode[];
   podcastEvents: PodcastEvent[];
+  fieldInvoices?: FieldInvoiceDraft[];
+  ownerNotifications?: OwnerNotification[];
+}
+
+export interface ProjectAttachment {
+  id: string;
+  name: string;
+  mediaType: "image" | "video" | "document";
+  url: string;
+  uploadedAt: string;
+}
+
+export interface ProjectActivity {
+  id: string;
+  projectId: string;
+  kind: "Field Note" | "Owner Comment" | "Private Owner Note" | "System Alert";
+  authorName: string;
+  authorRole: "Owner" | "Contractor" | "Estimator" | "System";
+  body: string;
+  attachments: ProjectAttachment[];
+  createdAt: string;
+}
+
+export interface OwnerNotification {
+  id: string;
+  projectId: string;
+  title: string;
+  detail: string;
+  severity: "Info" | "Review" | "Urgent";
+  createdAt: string;
+  readAt: string;
+  source: "Field documentation" | "Owner activity" | "Rules review";
 }
 
 export interface BootstrapPayload {
   sessionRole: SessionRole;
+  sessionEmail?: string;
   hasQuoteSession: boolean;
   hasAdminSession: boolean;
   adminEmailHint: string;
@@ -587,6 +634,7 @@ export interface BootstrapPayload {
 
 export interface LoginPayload {
   sessionRole: AuthRole;
+  sessionEmail?: string;
   appState: AppState;
   message: string;
 }

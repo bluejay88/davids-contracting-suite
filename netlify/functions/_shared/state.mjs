@@ -433,7 +433,12 @@ export const buildPublicState = (persistedState) => ({
   podcastEvents: persistedState.appState.podcastEvents.filter((item) => item.published),
 });
 
-export const buildQuoteState = (persistedState) => ({
+export const buildQuoteState = (persistedState, staffEmail = "") => {
+  const employee = persistedState.appState.employees.find((item) => normalizeString(item.email).toLowerCase() === normalizeString(staffEmail).toLowerCase() && item.status === "Active");
+  const assignedIds = new Set(employee?.assignedProjectIds || []);
+  const projects = employee ? persistedState.appState.projects.filter((project) => assignedIds.has(project.id) || project.employeeIds?.includes(employee.id)).map((project) => ({ ...clone(project), activity: (project.activity || []).filter((item) => item.kind !== "Private Owner Note") })) : [];
+  const safeEmployee = employee ? { id: employee.id, firstName: employee.firstName, lastName: employee.lastName, title: employee.title, email: employee.email, skills: employee.skills, availability: employee.availability, weeklyCapacityHours: employee.weeklyCapacityHours, assignedProjectIds: employee.assignedProjectIds } : null;
+  return {
   settings: sanitizeSettings(persistedState.appState.settings, persistedState.secrets, false),
   crmRecords: [],
   reminders: [],
@@ -443,8 +448,8 @@ export const buildQuoteState = (persistedState) => ({
   })),
   applicants: [],
   jobOpenings: [],
-  projects: [],
-  employees: [],
+  projects,
+  employees: safeEmployee ? [safeEmployee] : [],
   materials: [],
   aiReviews: [],
   contactLeads: [],
@@ -453,7 +458,8 @@ export const buildQuoteState = (persistedState) => ({
   galleryProjects: persistedState.appState.galleryProjects.filter((item) => item.published).map(sanitizeGalleryProject),
   podcastEpisodes: persistedState.appState.podcastEpisodes.filter((item) => item.status === "Published" || item.status === "Scheduled"),
   podcastEvents: persistedState.appState.podcastEvents.filter((item) => item.published),
-});
+};
+};
 
 export const buildAdminState = (persistedState) => ({
   ...clone(persistedState.appState),
@@ -540,6 +546,21 @@ export const updateOperationsState = async (patch = {}) => {
     }
   }
 
+  await writePersistedState(persistedState);
+  return persistedState;
+};
+
+/** Append-only project documentation. Existing entries are never accepted from this route for mutation/removal. */
+export const appendProjectActivity = async (projectId, entry) => {
+  const persistedState = await readPersistedState();
+  const project = persistedState.appState.projects.find((item) => item.id === projectId);
+  if (!project) throw Object.assign(new Error("Project not found."), { status: 404 });
+  project.activity = [entry, ...(Array.isArray(project.activity) ? project.activity : [])].slice(0, 2000);
+  project.updatedAt = entry.createdAt;
+  persistedState.appState.ownerNotifications = [
+    { id: `notice-${entry.id}`, projectId, title: `${entry.authorRole} documentation added`, detail: entry.body.slice(0, 280), severity: entry.attachments.length ? "Review" : "Info", createdAt: entry.createdAt, readAt: "", source: "Field documentation" },
+    ...(persistedState.appState.ownerNotifications || []),
+  ].slice(0, 5000);
   await writePersistedState(persistedState);
   return persistedState;
 };

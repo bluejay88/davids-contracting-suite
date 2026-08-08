@@ -111,7 +111,7 @@ export function AdminDashboard({
   const [updatingRecordId, setUpdatingRecordId] = useState<string | null>(null);
   const [testingIntegration, setTestingIntegration] = useState<IntegrationKey | null>(null);
   const [integrationResults, setIntegrationResults] = useState<Partial<Record<IntegrationKey, IntegrationTestResult>>>({});
-  const [activeTab, setActiveTab] = useState<"overview" | "operations" | "employees" | "gallery" | "podcast" | "crm" | "schedule" | "insights" | "team" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "operations" | "employees" | "gallery" | "podcast" | "crm" | "schedule" | "insights" | "notifications" | "team" | "settings">("overview");
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
   const ownerTabs = [
@@ -123,6 +123,7 @@ export function AdminDashboard({
     { id: "crm", label: "Customers & CRM", icon: BriefcaseBusiness },
     { id: "schedule", label: "Schedule", icon: ClipboardCheck },
     { id: "insights", label: "Reports & Insights", icon: LineChart },
+    { id: "notifications", label: "Notifications", icon: BellRing },
     { id: "team", label: "Team & Resources", icon: Users },
     { id: "settings", label: "Developer Console", icon: Settings },
   ] as const;
@@ -286,10 +287,11 @@ export function AdminDashboard({
       {mobileNavigationOpen ? <button className="owner-sidebar__scrim" aria-label="Close navigation" onClick={() => setMobileNavigationOpen(false)} /> : null}
       <main className="dashboard owner-workspace__content">
       {activeTab === "operations" ? <OperationsHub appState={appState} onUpdate={onUpdateOperations} /> : null}
-      {activeTab === "employees" ? <EmployeeManager employees={appState.employees} onSave={onUpdateOperations} /> : null}
+      {activeTab === "employees" ? <EmployeeManager employees={appState.employees} projects={appState.projects} onSave={onUpdateOperations} /> : null}
       {activeTab === "gallery" ? <GalleryManager projects={appState.galleryProjects} onSave={(galleryProjects) => onUpdateOperations({ galleryProjects })} /> : null}
       {activeTab === "podcast" ? <PodcastManager episodes={appState.podcastEpisodes.length ? appState.podcastEpisodes : examplePodcastEpisodes} events={appState.podcastEvents.length ? appState.podcastEvents : examplePodcastEvents} onSave={onUpdateOperations} /> : null}
       {activeTab === "insights" ? <RevenueIntelligence appState={appState} /> : null}
+      {activeTab === "notifications" ? <section className="operations-hub"><div className="operations-hub__header"><div><p className="eyebrow">Owner-only review queue</p><h2>Notifications</h2><p>Recent field documentation and system review items. Private Owner notes never appear in field workspaces.</p></div><BellRing size={24} /></div><div className="operations-list">{(appState.ownerNotifications || []).slice(0, 25).map((item) => { const project = appState.projects.find((entry) => entry.id === item.projectId); return <article key={item.id}><div><strong>{item.title}</strong><span>{project?.name || "Project"} · {item.severity}</span><small>{item.detail}</small></div><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></article>; })}{!(appState.ownerNotifications || []).length ? <p className="helper-text">No new project notifications. Field documentation will appear here as it is submitted.</p> : null}</div></section> : null}
       {activeTab === "overview" ? <><section className="dashboard__hero">
         <div>
           <p className="eyebrow">Owner control center</p>

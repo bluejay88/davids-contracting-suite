@@ -10,6 +10,7 @@ import {
   updateAppSettings,
   updateCrmRecord,
   updateOperationsState,
+  appendProjectActivity,
   verifyAdminPassword,
   verifyStaffPassword,
 } from "./_shared/state.mjs";
@@ -235,20 +236,21 @@ const requireQuoteAuth = (request, persistedState) => {
   return null;
 };
 
-const buildStateForRole = (persistedState, role) => {
+const buildStateForRole = (persistedState, role, email = "") => {
   if (role === "admin") {
     return buildAdminState(persistedState);
   }
 
   if (role === "staff") {
-    return buildQuoteState(persistedState);
+    return buildQuoteState(persistedState, email);
   }
 
   return buildPublicState(persistedState);
 };
 
 const handleBootstrap = async (request, persistedState) => {
-  const sessionRole = getSessionRole(request, persistedState);
+  const session = readSession(request, persistedState);
+  const sessionRole = session?.role || "public";
 
   return jsonResponse({
     sessionRole,
@@ -256,7 +258,8 @@ const handleBootstrap = async (request, persistedState) => {
     hasAdminSession: sessionRole === "admin",
     adminEmailHint: "",
     staffEmailHint: "",
-    appState: buildStateForRole(persistedState, sessionRole),
+    sessionEmail: session?.email || "",
+    appState: buildStateForRole(persistedState, sessionRole, session?.email || ""),
   });
 };
 
@@ -280,16 +283,28 @@ const handleLogin = async (request, persistedState) => {
 
   const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");
+  const configuredStaffAccounts = [
+    { email: String(process.env.DC_CONTRACTOR_EMAIL || "").trim().toLowerCase(), password: process.env.DC_CONTRACTOR_PASSWORD || "", type: "Contractor" },
+    { email: String(process.env.DC_ESTIMATOR_EMAIL || "").trim().toLowerCase(), password: process.env.DC_ESTIMATOR_PASSWORD || "", type: "Estimator" },
+  ].filter((account) => account.email && account.password);
   const expectedEmail =
     role === "admin"
       ? String(process.env.DC_OWNER_USERNAME || persistedState.appState.settings.adminEmail).trim().toLowerCase()
       : persistedState.appState.settings.staffEmail.trim().toLowerCase();
+  const configuredStaffAccount = role === "staff" ? configuredStaffAccounts.find((account) => account.email === email) : null;
   const passwordMatches =
     role === "admin"
       ? process.env.DC_OWNER_PASSWORD
         ? password === process.env.DC_OWNER_PASSWORD
         : verifyAdminPassword(persistedState, password)
-      : verifyStaffPassword(persistedState, password);
+      : configuredStaffAccount ? password === configuredStaffAccount.password : verifyStaffPassword(persistedState, password);
+
+  if (role === "staff" && configuredStaffAccount) {
+    const employee = persistedState.appState.employees.find((item) => cleanText(item.email, 254).toLowerCase() === email);
+    if (!employee || employee.status !== "Active") {
+      return jsonResponse({ message: "This workforce account is not active. Contact the Owner." }, 403);
+    }
+  }
 
   if (email !== expectedEmail || !passwordMatches) {
     return jsonResponse(
@@ -307,8 +322,9 @@ const handleLogin = async (request, persistedState) => {
   return jsonResponse(
     {
       sessionRole: role,
-      appState: buildStateForRole(persistedState, role),
-      message: role === "admin" ? "Admin login successful." : "Contractor workspace unlocked.",
+      sessionEmail: email,
+      appState: buildStateForRole(persistedState, role, email),
+      message: role === "admin" ? "Admin login successful." : `${configuredStaffAccount?.type || "Contractor / Estimator"} workspace unlocked.`,
     },
     200,
     {
@@ -519,6 +535,39 @@ const handleOperationsUpdate = async (request, persistedState) => {
     appState: buildAdminState(nextState),
     message: "Operational workspace updated on the secure server.",
   });
+};
+
+const handleProjectActivity = async (request, persistedState, projectId) => {
+  const originError = requireSameOrigin(request);
+  if (originError) return originError;
+  const authError = requireAdminAuth(request, persistedState);
+  if (authError) return authError;
+  const body = await parseJsonBody(request);
+  const text = cleanText(body.body, 4000);
+  if (!text) return jsonResponse({ message: "A project note is required." }, 400);
+  const attachments = Array.isArray(body.attachments) ? body.attachments.slice(0, 20).map((item) => ({ id: publicId("attachment"), name: cleanText(item?.name, 180), mediaType: ["image", "video", "document"].includes(item?.mediaType) ? item.mediaType : "document", url: cleanText(item?.url, 2000), uploadedAt: new Date().toISOString() })).filter((item) => item.name && item.url) : [];
+  const now = new Date().toISOString();
+  const entry = { id: publicId("activity"), projectId, kind: body.kind === "Private Owner Note" ? "Private Owner Note" : "Owner Comment", authorName: persistedState.appState.settings.repProfile.repName, authorRole: "Owner", body: text, attachments, createdAt: now };
+  const nextState = await appendProjectActivity(projectId, entry);
+  return jsonResponse({ appState: buildAdminState(nextState), activity: entry, message: "Project documentation added." });
+};
+
+const handleFieldProjectActivity = async (request, persistedState, projectId) => {
+  const originError = requireSameOrigin(request);
+  if (originError) return originError;
+  const authError = requireQuoteAuth(request, persistedState);
+  if (authError) return authError;
+  const session = readSession(request, persistedState);
+  const employee = persistedState.appState.employees.find((item) => cleanText(item.email, 254).toLowerCase() === cleanText(session?.email, 254).toLowerCase() && item.status === "Active");
+  const project = persistedState.appState.projects.find((item) => item.id === projectId);
+  if (!employee || !project || !(employee.assignedProjectIds || []).includes(projectId) && !(project.employeeIds || []).includes(employee.id)) return jsonResponse({ message: "You are not assigned to this project." }, 403);
+  const body = await parseJsonBody(request);
+  const text = cleanText(body.body, 4000);
+  if (!text) return jsonResponse({ message: "A field note is required." }, 400);
+  const now = new Date().toISOString();
+  const entry = { id: publicId("activity"), projectId, kind: "Field Note", authorName: `${employee.firstName} ${employee.lastName}`.trim(), authorRole: "Contractor", body: text, attachments: [], createdAt: now };
+  const nextState = await appendProjectActivity(projectId, entry);
+  return jsonResponse({ appState: buildQuoteState(nextState, session.email), activity: entry, message: "Field documentation submitted to the Owner." });
 };
 
 const handleRecordUpdate = async (request, persistedState, recordId) => {
@@ -748,6 +797,14 @@ export default async (request) => {
 
     if (request.method === "PUT" && pathname === "/api/admin/operations") {
       return handleOperationsUpdate(request, persistedState);
+    }
+    if (request.method === "POST" && pathname.startsWith("/api/admin/projects/") && pathname.endsWith("/activity")) {
+      const projectId = pathname.slice("/api/admin/projects/".length, -"/activity".length);
+      return handleProjectActivity(request, persistedState, projectId);
+    }
+    if (request.method === "POST" && pathname.startsWith("/api/field/projects/") && pathname.endsWith("/activity")) {
+      const projectId = pathname.slice("/api/field/projects/".length, -"/activity".length);
+      return handleFieldProjectActivity(request, persistedState, projectId);
     }
 
     if (request.method === "POST" && pathname === "/api/admin/integrations/test") {

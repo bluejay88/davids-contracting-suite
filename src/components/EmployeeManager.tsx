@@ -1,11 +1,12 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Edit3, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
 import { OperationsStatePatch } from "../lib/api";
-import { Employee, EmploymentType } from "../types";
+import { Employee, EmploymentType, Project } from "../types";
 import { formatCurrency } from "../lib/estimates";
 
 interface EmployeeManagerProps {
   employees: Employee[];
+  projects: Project[];
   onSave: (patch: OperationsStatePatch) => Promise<void>;
 }
 
@@ -21,7 +22,7 @@ const emptyDraft = (): Employee => ({
   emergencyContactPhone: "", notes: "",
 });
 
-export function EmployeeManager({ employees, onSave }: EmployeeManagerProps) {
+export function EmployeeManager({ employees, projects, onSave }: EmployeeManagerProps) {
   const [draft, setDraft] = useState<Employee>(emptyDraft);
   const [skillsText, setSkillsText] = useState("");
   const [message, setMessage] = useState("");
@@ -98,6 +99,7 @@ export function EmployeeManager({ employees, onSave }: EmployeeManagerProps) {
           {draft.paymentMethod !== "Cash" ? <label className="employee-form-grid__wide">{draft.paymentMethod} username or account label<input required maxLength={120} autoComplete="off" placeholder="Username, payout alias, or last-four label only" value={draft.paymentHandle} onChange={(e) => setDraft({ ...draft, paymentHandle: e.target.value })} /></label> : null}
           <label>Weekly capacity (hours)<input type="number" min="0" max="168" value={draft.weeklyCapacityHours} onChange={(e) => setDraft({ ...draft, weeklyCapacityHours: Number(e.target.value) })} /></label>
           <label>Availability<select value={draft.availability} onChange={(e) => setDraft({ ...draft, availability: e.target.value as Employee["availability"] })}><option>Available</option><option>Partially Allocated</option><option>Fully Allocated</option><option>Unavailable</option></select></label>
+          <label className="employee-form-grid__wide">Assigned projects<select multiple value={draft.assignedProjectIds} onChange={(event) => setDraft({ ...draft, assignedProjectIds: Array.from(event.currentTarget.selectedOptions, (option) => option.value) })} aria-describedby="employee-project-help">{projects.map((project) => <option key={project.id} value={project.id}>{project.name} — {project.clientName}</option>)}</select><small id="employee-project-help">Hold Ctrl/Cmd to assign more than one project. Assigned field workers only see these projects in their workspace.</small></label>
           <label className="employee-form-grid__wide">Skills<input value={skillsText} placeholder="Carpentry, flooring, supervision" onChange={(e) => setSkillsText(e.target.value)} /></label>
           <label className="employee-form-grid__wide">Notes<textarea maxLength={2000} rows={4} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label>
         </div>

@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AdminDashboard } from "./components/AdminDashboard";
+import { ContractorDashboard } from "./components/ContractorDashboard";
 import { LandingPage } from "./components/LandingPage";
 import { QuoteBuilder } from "./components/QuoteBuilder";
 import { CareersPage, ContactPage, FinancingPage, GalleryPage } from "./components/PublicPages";
@@ -28,7 +29,7 @@ import {
   SessionRole,
 } from "./types";
 
-type ViewKey = "landing" | "quote" | "gallery" | "podcast" | "financing" | "careers" | "contact" | "crm";
+type ViewKey = "landing" | "quote" | "gallery" | "podcast" | "financing" | "careers" | "contact" | "crm" | "field";
 
 const initialPublicState: AppState = {
   ...initialAppState,
@@ -53,6 +54,7 @@ export default function App() {
   const [loginMode, setLoginMode] = useState<AuthRole>("staff");
   const [postLoginView, setPostLoginView] = useState<ViewKey>("quote");
   const [loginEmail, setLoginEmail] = useState("");
+  const [sessionEmail, setSessionEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [notice, setNotice] = useState("");
@@ -70,6 +72,7 @@ export default function App() {
     const payload = await fetchBootstrap();
     setAppState(payload.appState);
     setSessionRole(payload.sessionRole);
+    setSessionEmail(payload.sessionEmail || "");
     setAdminEmailHint(payload.adminEmailHint);
     setStaffEmailHint(payload.staffEmailHint);
     if (payload.sessionRole === "public") {
@@ -200,6 +203,7 @@ export default function App() {
       const payload = await loginUser(loginMode, loginEmail, loginPassword, loginSecurityPayload);
       setAppState(payload.appState);
       setSessionRole(payload.sessionRole);
+      setSessionEmail(payload.sessionEmail || loginEmail.trim().toLowerCase());
       sessionStorage.setItem(secureSessionKey, "true");
       setShowLogin(false);
       setActiveView(postLoginView);
@@ -348,7 +352,7 @@ export default function App() {
               {authBusy ? "Signing Out..." : "Log Out"}
             </button>
           ) : (
-            <button className="ghost-button topbar__login" onClick={() => openSecureAccess("staff", "quote")}>
+            <button className="ghost-button topbar__login" onClick={() => openSecureAccess("staff", "field")}>
               Log In
             </button>
           )}
@@ -367,7 +371,7 @@ export default function App() {
             repProfile={appState.settings.repProfile}
             onOpenQuote={openQuote}
             onNavigate={setActiveView}
-            onLogin={() => openSecureAccess("staff", "quote")}
+            onLogin={() => openSecureAccess("staff", "field")}
           />
         ) : null}
 
@@ -385,6 +389,10 @@ export default function App() {
             onSaveRecord={handleSaveRecord}
             onOpenAdmin={() => void openAdmin()}
           />
+        ) : null}
+
+        {activeView === "field" ? (
+          sessionRole === "staff" ? <ContractorDashboard appState={appState} email={sessionEmail} onOpenEstimate={openQuote} onUpdateState={setAppState} /> : <section className="locked-state"><p className="eyebrow">Contractor Login Required</p><h2>This workspace is available only to an assigned Contractor or Estimator.</h2><button className="primary-button" onClick={() => openSecureAccess("staff", "field")}>Open team login</button></section>
         ) : null}
 
         {activeView === "crm" ? (

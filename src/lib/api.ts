@@ -88,6 +88,13 @@ export const updateOperationsState = (patch: OperationsStatePatch) =>
     body: JSON.stringify({ patch }),
   });
 
+export const submitFieldProjectNote = (projectId: string, body: string) =>
+  requestJson<{ message: string; appState: AppState }>(`/api/field/projects/${encodeURIComponent(projectId)}/activity`, {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ body }),
+  });
+
 export const updateDashboardRecord = (recordId: string, patch: Partial<CrmRecord>) =>
   requestJson<RecordPayload>(`/api/admin/records/${recordId}`, {
     method: "PATCH",
