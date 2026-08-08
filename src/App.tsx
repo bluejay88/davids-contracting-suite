@@ -348,7 +348,7 @@ export default function App() {
             </span>
           ) : null}
           {hasQuoteSession ? (
-            <button className="ghost-button" onClick={() => void handleLogout()} disabled={authBusy}>
+            <button className="ghost-button topbar__logout" onClick={() => void handleLogout()} disabled={authBusy}>
               {authBusy ? "Signing Out..." : "Log Out"}
             </button>
           ) : (

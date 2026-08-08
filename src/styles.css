@@ -1606,6 +1606,7 @@ body { background: var(--brand-cream); color: var(--brand-charcoal); }
 /* Persistent primary action: legible against every header theme. */
 .topbar__estimate{min-height:46px!important;padding:.76rem 1.1rem!important;border:2px solid #fff!important;border-radius:8px!important;color:#fff!important;background:#e96500!important;box-shadow:0 10px 24px rgba(166,65,0,.28)!important;font-weight:900!important;letter-spacing:.01em}
 .topbar__estimate:hover,.topbar__estimate:focus-visible{color:#fff!important;background:#b94600!important;border-color:#fff!important;box-shadow:0 14px 28px rgba(120,40,0,.34)!important}
+.edition-standard .topbar__logout{border:2px solid #8b2e00!important;color:#fff!important;background:#8b2e00!important;box-shadow:0 8px 20px rgba(95,31,0,.2)!important;font-weight:850!important}.edition-standard .topbar__logout:hover,.edition-standard .topbar__logout:focus-visible{border-color:#571b00!important;background:#571b00!important;color:#fff!important}
 .edition-executive .topbar__estimate{border-color:#fff!important;color:#111!important;background:#d8b46e!important;box-shadow:0 10px 24px rgba(0,0,0,.38)!important}.edition-executive .topbar__estimate:hover,.edition-executive .topbar__estimate:focus-visible{color:#111!important;background:#f3d493!important}
 
 /* Editorial media treatment for the public information pages. */
