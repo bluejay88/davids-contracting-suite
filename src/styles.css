@@ -1598,9 +1598,14 @@ body { background: var(--brand-cream); color: var(--brand-charcoal); }
 /* Executive edition: quiet black, graphite, and ivory without changing public workflows. */
 .edition-executive{--brand-navy:#111111;--brand-navy-2:#242424;--brand-orange:#b78a44;--brand-charcoal:#151515;--brand-steel:#5e5a55;--brand-cream:#f7f4ed}
 .edition-executive .brand-hero{background-image:linear-gradient(90deg,rgba(8,8,8,.9) 0%,rgba(18,18,18,.72) 45%,rgba(18,18,18,.16) 76%,rgba(255,255,255,.03) 100%),url('/contracting-hero-2026.webp')}
-.edition-executive .logo-frame{position:relative;border-color:rgba(0,0,0,.28);background:#f7f4ed;box-shadow:0 20px 55px rgba(0,0,0,.34),0 0 0 6px rgba(247,244,237,.14)}
+.edition-executive .logo-frame{position:relative;border-color:rgba(255,255,255,.48);background:#050505;box-shadow:0 20px 55px rgba(0,0,0,.34),0 0 0 6px rgba(247,244,237,.14)}
 .edition-executive .logo-frame img{opacity:0}.edition-executive .logo-frame:after{content:"";position:absolute;inset:0;background:url('/davids-contracting-executive.svg') center/contain no-repeat;pointer-events:none}
 .edition-executive .brand-kicker{color:#b78a44}.edition-executive .brand-button{border-color:#b78a44;background:#b78a44;color:#111}.edition-executive .brand-button--quiet{border-color:#fff;color:#fff;background:transparent}.edition-executive .brand-services,.edition-executive .brand-footer,.edition-executive .site-footer{background:#111}.edition-executive .brand-proof__visual figcaption{background:rgba(0,0,0,.9)}.edition-executive .topbar__login{border-color:#b78a44;background:#111;color:#fff}
+
+/* Persistent primary action: legible against every header theme. */
+.topbar__estimate{min-height:46px!important;padding:.76rem 1.1rem!important;border:2px solid #fff!important;border-radius:8px!important;color:#fff!important;background:#e96500!important;box-shadow:0 10px 24px rgba(166,65,0,.28)!important;font-weight:900!important;letter-spacing:.01em}
+.topbar__estimate:hover,.topbar__estimate:focus-visible{color:#fff!important;background:#b94600!important;border-color:#fff!important;box-shadow:0 14px 28px rgba(120,40,0,.34)!important}
+.edition-executive .topbar__estimate{border-color:#fff!important;color:#111!important;background:#d8b46e!important;box-shadow:0 10px 24px rgba(0,0,0,.38)!important}.edition-executive .topbar__estimate:hover,.edition-executive .topbar__estimate:focus-visible{color:#111!important;background:#f3d493!important}
 
 /* Editorial media treatment for the public information pages. */
 .podcast-intro{grid-template-columns:minmax(280px,.85fr) minmax(0,1.15fr);align-items:center}.podcast-intro__image{overflow:hidden;aspect-ratio:1;border-radius:18px;box-shadow:18px 18px 0 var(--brand-orange)}.podcast-intro__image img{width:100%;height:100%;object-fit:cover}.podcast-intro__copy{display:grid;gap:1.15rem}.podcast-intro__copy h2{margin:.15rem 0}.podcast-intro__copy p{max-width:720px;margin:0;font-size:1.12rem;line-height:1.8;color:#4d5d6a}.podcast-intro__copy p:first-of-type{font-size:1.35rem;color:var(--brand-navy);font-weight:700}
