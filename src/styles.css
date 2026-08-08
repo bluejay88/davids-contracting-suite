@@ -1432,6 +1432,7 @@ body { background: var(--brand-cream); color: var(--brand-charcoal); }
 .brand-hero__veil { position:absolute; inset:auto -10% -38% 42%; aspect-ratio:1; border:1px solid rgba(255,121,0,.4); border-radius:50%; box-shadow:0 0 100px rgba(255,121,0,.16); }
 .brand-hero__content { position:relative; z-index:1; width:min(1200px,calc(100% - 3rem)); padding:6rem 0 8rem; }
 .logo-frame--hero { width:clamp(250px,31vw,440px); height:clamp(165px,20vw,285px); margin-bottom:1.8rem; border:2px solid rgba(255,121,0,.78); border-radius:8px; box-shadow:0 24px 70px rgba(0,0,0,.24),0 0 0 6px rgba(255,255,255,.16),0 0 55px rgba(255,121,0,.22); }
+.edition-standard .logo-frame--hero { transform:translateY(20px); }
 .brand-hero__logo { width:100%; height:100%; filter:contrast(1.08) saturate(1.06); }
 .brand-hero h2 { margin:0; max-width:800px; font-size:clamp(4rem,9vw,8.5rem); line-height:.83; letter-spacing:-.07em; text-transform:uppercase; }
 .brand-hero__content>p:not(.brand-kicker) { max-width:590px; font-size:clamp(1rem,1.5vw,1.25rem); line-height:1.7; color:rgba(255,255,255,.75); }
