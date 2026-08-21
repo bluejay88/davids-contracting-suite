@@ -75,6 +75,7 @@ interface BrowserSpeechCtor {
 
 type AiBusyState = null | "scope" | "programs" | "materials" | "transcribe";
 type EstimateSectionId = "trades" | "helpers" | "client" | "tasks";
+const formatUnitRate = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
 const defaultClientIntake = (repName: string): ClientIntake => ({
   firstName: "",
@@ -1755,6 +1756,18 @@ export function QuoteBuilder({ settings, historicalJobs, sessionRole, onSaveReco
                     <dd>{quote.budgetFit.note}</dd>
                   </div>
                 </dl>
+                <div className="stack-block estimate-unit-pricing">
+                  <div className="stack-block__title"><SearchCheck size={16} /> Scope pricing by measure</div>
+                  <ul>
+                    {quote.breakdown.map((line) => <li key={line.taskId}>
+                      <strong>{line.taskName}</strong>
+                      <span>{formatUnitRate(line.unitPricing.lowInstalledPerUnit)}–{formatUnitRate(line.unitPricing.highInstalledPerUnit)} / {line.unitPricing.unitLabel}</span>
+                      <small>Labor {formatUnitRate(line.unitPricing.lowLaborPerUnit)}–{formatUnitRate(line.unitPricing.highLaborPerUnit)} · Materials {formatUnitRate(line.unitPricing.lowMaterialsPerUnit)}–{formatUnitRate(line.unitPricing.highMaterialsPerUnit)} per {line.unitPricing.unitLabel}</small>
+                      {line.roofingDetail ? <small className="roofing-rate-detail">Roof coverage: {line.roofingDetail.coverageSqFt.toLocaleString()} sq ft ({line.roofingDetail.roofingSquares} squares) · {formatUnitRate(line.roofingDetail.installedPerSquare.low)}–{formatUnitRate(line.roofingDetail.installedPerSquare.high)} per roofing square</small> : null}
+                    </li>)}
+                  </ul>
+                  <p className="customer-estimate-note"><ShieldCheck size={16} /> Per-unit figures are preliminary planning allowances. Field measurement, access, roof pitch, tear-off layers, code requirements, and selected materials can change a final written proposal.</p>
+                </div>
                 <div className="stack-block">
                   <div className="stack-block__title">
                     <CircleHelp size={16} />

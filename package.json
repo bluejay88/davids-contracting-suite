@@ -13,7 +13,8 @@
     "start": "node server/index.mjs",
     "mock:integrations": "node scripts/mock-integrations.mjs",
     "test:secure-smoke": "node scripts/secure-audit-smoke.mjs",
-    "test:netlify-smoke": "node scripts/netlify-function-smoke.mjs"
+    "test:netlify-smoke": "node scripts/netlify-function-smoke.mjs",
+    "test:estimator-audit": "npx --yes tsx scripts/estimator-audit.mts"
     ,"test:assistant-guardrails": "node --experimental-strip-types scripts/site-assistant-guardrails.mjs"
   },
   "dependencies": {

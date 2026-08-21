@@ -178,6 +178,25 @@ export interface QuoteLineBreakdown {
   lowTotal: number;
   highTotal: number;
   laborHours: number;
+  /** Customer-safe planning rate derived from the selected quantity and line allowance. */
+  unitPricing: {
+    unitLabel: string;
+    lowLaborPerUnit: number;
+    highLaborPerUnit: number;
+    lowMaterialsPerUnit: number;
+    highMaterialsPerUnit: number;
+    lowInstalledPerUnit: number;
+    highInstalledPerUnit: number;
+  };
+  /** Roofing-only view; a roofing square equals 100 square feet. */
+  roofingDetail?: {
+    coverageSqFt: number;
+    roofingSquares: number;
+    laborPerSqFt: { low: number; high: number };
+    materialsPerSqFt: { low: number; high: number };
+    installedPerSqFt: { low: number; high: number };
+    installedPerSquare: { low: number; high: number };
+  };
   customaryIncludes: string[];
   customaryExcludes: string[];
   materials: Array<MaterialTemplate & { lowExtendedCost: number; highExtendedCost: number }>;

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { BadgeDollarSign, BookOpenCheck, BrainCircuit, ShieldCheck, TrendingUp, Users } from "lucide-react";
 import { AppState, ContactLead, CrmRecord, FinancingInquiry } from "../types";
 import { formatCurrency } from "../lib/estimates";
+import { runEstimatorAudit } from "../lib/estimatorAudit";
 import { reportCatalog } from "../data/reportCatalog";
 
 type Signal = { label: string; points: number; detail: string };
@@ -98,6 +99,7 @@ export function RevenueIntelligence({ appState }: { appState: AppState }) {
   const remainingContractValue = appState.projects.filter((project) => project.status === "Active" || project.status === "Planning").reduce((sum, project) => sum + Math.max(0, project.budget - project.actualCost), 0);
   const coverageWeeks = weeklyLabor ? remainingContractValue / weeklyLabor : 0;
   const pipelineValue = insights.reduce((sum, item) => sum + item.value, 0);
+  const estimatorAudit = useMemo(() => runEstimatorAudit(appState.settings), [appState.settings]);
 
   return <section className="revenue-intelligence" aria-labelledby="revenue-intelligence-title">
     <header className="revenue-intelligence__header"><div><p className="eyebrow">Decision support</p><h2 id="revenue-intelligence-title">Revenue, lead readiness, and workforce coverage</h2><p>Explainable operational signals only. Scores do not use protected traits, creditworthiness, or inferred personal characteristics, and every recommendation requires human review.</p></div><BrainCircuit aria-hidden="true" /></header>
@@ -114,6 +116,7 @@ export function RevenueIntelligence({ appState }: { appState: AppState }) {
       </details>) : <p className="helper-text">Lead guidance will appear after website inquiries, estimates, or financing requests are received.</p>}
     </div>
     <section className="training-foundation"><div><p className="eyebrow">Reporting library</p><h3>40 owner reporting views</h3><p>Definitions are ready; each view is enabled only when its source records are available and validated.</p></div><div>{reportCatalog.map((report) => <span key={report.name}><strong>{report.name}</strong><small>{report.group}</small></span>)}</div></section>
+    <section className="training-foundation estimator-audit-report"><div><p className="eyebrow">Estimator quality control</p><h3>{estimatorAudit.passed}/{estimatorAudit.total} deterministic cases passed</h3><p>Checks unit-pricing math across square-foot, linear-foot, item, and roofing scopes. This is a calculation QA report—not a promise that a field quote will match an online planning range.</p></div><div><strong>{estimatorAudit.passRate}% pass rate</strong><small>{estimatorAudit.failed ? `${estimatorAudit.failed} case(s) require correction before pricing changes are approved.` : "No calculation exceptions detected in the current 50-case policy run."}</small>{estimatorAudit.policy.map((rule) => <small key={rule}>• {rule}</small>)}</div></section>
     <section className="training-foundation"><div><p className="eyebrow">Workforce development</p><h3><BookOpenCheck/> Training recommendation foundation</h3><p>Curated starting points. The owner must verify role fit, current requirements, provider status, cost, and completion records.</p></div><div>{training.map((item) => <a key={item.title} href={item.url} target="_blank" rel="noreferrer"><strong>{item.title}</strong><span>{item.reason}</span></a>)}</div></section>
   </section>;
 }

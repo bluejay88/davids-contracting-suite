@@ -47,6 +47,8 @@ const taskIndex = new Map(serviceTasks.map((task) => [task.id, task]));
 
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 
+const roundRate = (value: number) => Math.round(value * 1000000) / 1000000;
+
 const roundQuantity = (value: number) => Math.round(value * 10) / 10;
 
 const unique = <T>(items: T[]) => Array.from(new Set(items));
@@ -450,6 +452,26 @@ export const buildQuote = (
 
     const lowMaterials = roundMoney(materials.reduce((sum, material) => sum + material.lowExtendedCost, 0));
     const highMaterials = roundMoney(materials.reduce((sum, material) => sum + material.highExtendedCost, 0));
+    const lowTotal = roundMoney(lowLabor + lowMaterials);
+    const highTotal = roundMoney(highLabor + highMaterials);
+    const perUnit = (value: number) => roundRate(value / Math.max(1, quantity));
+    const unitPricing = {
+      unitLabel: task.unitLabel,
+      lowLaborPerUnit: perUnit(lowLabor),
+      highLaborPerUnit: perUnit(highLabor),
+      lowMaterialsPerUnit: perUnit(lowMaterials),
+      highMaterialsPerUnit: perUnit(highMaterials),
+      lowInstalledPerUnit: perUnit(lowTotal),
+      highInstalledPerUnit: perUnit(highTotal),
+    };
+    const roofingDetail = task.category === "roofing" && task.unitLabel === "sq ft" ? {
+      coverageSqFt: roundQuantity(quantity),
+      roofingSquares: roundQuantity(quantity / 100),
+      laborPerSqFt: { low: unitPricing.lowLaborPerUnit, high: unitPricing.highLaborPerUnit },
+      materialsPerSqFt: { low: unitPricing.lowMaterialsPerUnit, high: unitPricing.highMaterialsPerUnit },
+      installedPerSqFt: { low: unitPricing.lowInstalledPerUnit, high: unitPricing.highInstalledPerUnit },
+      installedPerSquare: { low: roundMoney(unitPricing.lowInstalledPerUnit * 100), high: roundMoney(unitPricing.highInstalledPerUnit * 100) },
+    } : undefined;
 
     return {
       taskId: task.id,
@@ -462,9 +484,11 @@ export const buildQuote = (
       highLabor,
       lowMaterials,
       highMaterials,
-      lowTotal: roundMoney(lowLabor + lowMaterials),
-      highTotal: roundMoney(highLabor + highMaterials),
+      lowTotal,
+      highTotal,
       laborHours,
+      unitPricing,
+      roofingDetail,
       customaryIncludes: task.customaryIncludes,
       customaryExcludes: task.customaryExcludes,
       materials,
